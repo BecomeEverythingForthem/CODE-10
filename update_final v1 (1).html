@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kotoba">
+<meta name="theme-color" content="#0a0c10">
+<title>Kotoba Trainer Pro</title>
+<style>
+:root{
+  --bg-deep:#0a0c10;--bg-panel:#10141c;--bg-card:#161b26;--bg-card2:#1c2333;
+  --accent:#e8a838;--accent2:#f0c060;--accent-dim:#8a6020;
+  --red:#c94040;--green:#3a9a5c;--blue:#3a72b0;--purple:#9c55d0;
+  --text:#d4cfc4;--text-dim:#6e7a8a;--text-bright:#f0ebe0;
+  --border:#2a3344;--scan:rgba(232,168,56,0.03);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Barlow Condensed','Arial Narrow',Arial,sans-serif;background:var(--bg-deep);color:var(--text);min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,var(--scan) 2px,var(--scan) 4px);pointer-events:none;z-index:9999;}
+body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:40px 40px;opacity:0.18;pointer-events:none;z-index:0;}
+#app{position:relative;z-index:1;min-height:100vh;}
+.container{max-width:680px;margin:0 auto;padding:20px 16px 60px;animation:screenIn 0.22s ease;}
+@keyframes screenIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+.ark-header{display:flex;align-items:center;gap:12px;padding:14px 0 20px;border-bottom:1px solid var(--border);margin-bottom:20px;position:relative;}
+.ark-header::after{content:'';position:absolute;bottom:-1px;left:0;width:80px;height:2px;background:var(--accent);}
+.ark-title{font-family:'Rajdhani','Arial Narrow',Arial,sans-serif;font-size:22px;font-weight:700;color:var(--text-bright);letter-spacing:3px;text-transform:uppercase;}
+.ark-title span{color:var(--accent);}
+.ark-badge{font-family:'Share Tech Mono','Courier New',monospace;font-size:10px;color:var(--accent);border:1px solid var(--accent-dim);padding:2px 6px;background:rgba(232,168,56,0.07);letter-spacing:2px;}
+
+.back{position:static!important;width:auto!important;padding:6px 14px!important;background:transparent!important;color:var(--text-dim)!important;border:1px solid var(--border)!important;border-radius:0!important;font-family:'Share Tech Mono',monospace!important;font-size:11px!important;letter-spacing:2px!important;touch-action:manipulation!important;-webkit-tap-highlight-color:transparent!important;cursor:pointer;transition:all 0.2s;margin-right:12px;justify-content:center!important;}
+.back:hover{color:var(--accent)!important;border-color:var(--accent-dim)!important;background:rgba(232,168,56,0.05)!important;}
+.back::before{content:'◄ ';}
+.back::after{display:none!important;}
+
+button{width:100%;padding:13px 18px;margin:5px 0;border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-family:'Barlow Condensed','Arial Narrow',Arial,sans-serif;font-size:15px;font-weight:600;letter-spacing:2px;text-transform:uppercase;cursor:pointer;position:relative;overflow:hidden;transition:all 0.18s ease;text-align:left;display:flex;align-items:center;gap:10px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;border-radius:0;outline:none;}
+button::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);opacity:0;transition:opacity 0.2s;}
+button:hover{background:var(--bg-card2);color:var(--accent);border-color:var(--accent-dim);}
+button:hover::before{opacity:1;}
+button::after{content:'';position:absolute;bottom:-1px;right:-1px;width:13px;height:13px;background:var(--bg-deep);transform:translate(50%,50%) rotate(45deg);pointer-events:none;transition:background 0.18s;}
+button:hover::after{background:var(--bg-card2);}
+button.correct::after{background:rgba(58,154,92,0.15)!important;}
+button.wrong::after{background:rgba(201,64,64,0.15)!important;}
+button.played::after{background:var(--bg-panel)!important;}
+button.choiceBtn{text-align:center;justify-content:center;}
+button.choiceBtn::after{display:none;}
+button.correct{background:rgba(58,154,92,0.15)!important;border-color:#3a9a5c!important;color:#5ecf8a!important;}
+button.correct::before{background:#3a9a5c;opacity:1;}
+button.wrong{background:rgba(201,64,64,0.15)!important;border-color:#c94040!important;color:#e86060!important;}
+button.wrong::before{background:#c94040;opacity:1;}
+button.played{background:var(--bg-panel)!important;border-color:var(--border)!important;color:var(--text-dim)!important;opacity:0.65;}
+button:disabled{opacity:0.4;cursor:not-allowed;}
+button:disabled:hover{background:var(--bg-card);color:var(--text);border-color:var(--border);}
+button:disabled:hover::before,button:disabled:hover::after{opacity:0;}
+
+.ark-stat-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+.ark-stat{flex:1;min-width:90px;background:var(--bg-card);border:1px solid var(--border);padding:10px 14px;clip-path:polygon(8px 0%,100% 0%,100% calc(100% - 8px),calc(100% - 8px) 100%,0% 100%,0% 8px);}
+.ark-stat-label{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:2px;text-transform:uppercase;}
+.ark-stat-value{font-family:'Rajdhani',sans-serif;font-size:24px;font-weight:700;color:var(--accent);line-height:1.1;}
+
+.ark-section{font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:3px;color:var(--accent);text-transform:uppercase;margin:18px 0 10px;display:flex;align-items:center;gap:8px;}
+.ark-section::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--accent-dim),transparent);}
+
+.xp-bar-wrap{background:var(--bg-card);border:1px solid var(--border);padding:12px 14px;margin-bottom:14px;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%);}
+.xp-bar-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.xp-rank{font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;letter-spacing:2px;}
+.xp-nums{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);}
+.xp-bar-bg{height:6px;background:var(--border);position:relative;overflow:hidden;}
+.xp-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent-dim),var(--accent));box-shadow:0 0 8px var(--accent);transition:width 0.6s ease;}
+.xp-bar-shine{position:absolute;top:0;left:-60px;width:40px;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.4),transparent);animation:xpShine 2s infinite;}
+@keyframes xpShine{0%{left:-60px;}100%{left:110%}}
+
+.ark-progress{height:3px;background:var(--border);margin:6px 0;}
+.ark-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent-dim),var(--accent));transition:width 0.4s ease;box-shadow:0 0 6px var(--accent);}
+
+.card{font-family:'Rajdhani','Arial Narrow',Arial,sans-serif;font-size:52px;font-weight:700;color:var(--text-bright);margin:16px 0;padding:28px 20px;background:var(--bg-card);border:1px solid var(--border);border-top:3px solid var(--accent);position:relative;clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,0 100%);text-shadow:0 0 30px rgba(232,168,56,0.2);letter-spacing:4px;text-align:center;}
+.card::before{content:'OPERATOR DATA';position:absolute;top:8px;left:12px;font-family:'Share Tech Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--accent);opacity:0.6;}
+
+.combo-display{text-align:center;padding:6px 0;font-family:'Rajdhani',sans-serif;font-size:28px;font-weight:700;color:var(--accent2);letter-spacing:3px;text-shadow:0 0 16px rgba(240,192,96,0.5);animation:comboPop 0.3s ease;}
+@keyframes comboPop{from{transform:scale(1.3);}to{transform:scale(1);}}
+
+.ark-lives{font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:600;color:var(--red);letter-spacing:2px;padding:8px 14px;background:rgba(201,64,64,0.08);border:1px solid rgba(201,64,64,0.25);border-left:3px solid var(--red);margin-bottom:10px;display:inline-block;}
+
+input[type=text],input[type=number],textarea{width:100%;padding:11px 14px;margin:6px 0;background:var(--bg-panel);border:1px solid var(--border);border-left:3px solid var(--accent-dim);color:var(--text-bright);font-family:'Share Tech Mono','Courier New',monospace;font-size:13px;outline:none;transition:border-color 0.2s;border-radius:0;}
+input[type=text]:focus,input[type=number]:focus,textarea:focus{border-color:var(--accent);border-left-color:var(--accent);box-shadow:0 0 0 1px rgba(232,168,56,0.15);}
+input[type=file]{color:var(--text-dim);font-size:12px;margin:6px 0;display:block;}
+input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;vertical-align:middle;}
+input[type=range]{accent-color:var(--accent);cursor:pointer;background:transparent;border:none;border-left:none;padding:0;width:100%;margin-top:16px;}
+label{font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px;padding:6px 0;letter-spacing:1px;}
+textarea{resize:vertical;min-height:100px;line-height:1.5;}
+hr{border:none;border-top:1px solid var(--border);margin:16px 0;}
+#info{font-family:'Share Tech Mono',monospace;font-size:13px;letter-spacing:1px;padding:10px;margin-top:8px;text-align:center;}
+
+.ach-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
+.ach-card{background:var(--bg-card);border:1px solid var(--border);padding:12px;clip-path:polygon(8px 0%,100% 0%,100% calc(100% - 8px),calc(100% - 8px) 100%,0% 100%,0% 8px);position:relative;overflow:hidden;}
+.ach-card.unlocked{border-color:var(--accent-dim);}
+.ach-card.unlocked::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent));}
+.ach-card.locked{opacity:0.42;filter:grayscale(0.5);}
+.ach-icon{font-size:24px;margin-bottom:4px;}
+.ach-name{font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--text-bright);letter-spacing:1px;}
+.ach-desc{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:1px;margin-top:2px;line-height:1.4;}
+.ach-reward{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent);margin-top:4px;}
+
+.daily-card{background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--blue);padding:12px 14px;margin:6px 0;display:flex;align-items:center;gap:12px;}
+.daily-card.done{border-left-color:var(--green);opacity:0.7;}
+.daily-check{font-size:18px;min-width:24px;}
+.daily-info{flex:1;}
+.daily-title{font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;color:var(--text-bright);letter-spacing:1px;}
+.daily-prog{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:2px;}
+.daily-reward{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent);}
+
+.levelup-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.88);animation:fadeOvIn 0.3s ease;}
+@keyframes fadeOvIn{from{opacity:0;}to{opacity:1;}}
+.levelup-box{text-align:center;padding:40px 48px;background:var(--bg-card);border:1px solid var(--accent);clip-path:polygon(20px 0%,100% 0%,100% calc(100% - 20px),calc(100% - 20px) 100%,0% 100%,0% 20px);position:relative;animation:levelupPop 0.4s cubic-bezier(0.34,1.56,0.64,1);}
+@keyframes levelupPop{from{transform:scale(0.7);opacity:0;}to{transform:scale(1);opacity:1;}}
+.levelup-box::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(232,168,56,0.08) 0%,transparent 70%);pointer-events:none;}
+.levelup-label{font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:4px;color:var(--accent);margin-bottom:8px;}
+.levelup-num{font-family:'Rajdhani',sans-serif;font-size:80px;font-weight:700;color:var(--accent);line-height:1;text-shadow:0 0 40px rgba(232,168,56,0.6);}
+.levelup-rank{font-family:'Rajdhani',sans-serif;font-size:20px;color:var(--text-bright);letter-spacing:4px;margin-top:6px;}
+
+.ach-toast{position:fixed;top:16px;right:16px;z-index:10001;background:var(--bg-card);border:1px solid var(--accent-dim);border-left:3px solid var(--accent);padding:12px 16px;max-width:280px;clip-path:polygon(8px 0%,100% 0%,100% calc(100% - 8px),calc(100% - 8px) 100%,0% 100%,0% 8px);animation:toastIn 0.3s ease;}
+@keyframes toastIn{from{transform:translateX(120%);opacity:0;}to{transform:translateX(0);opacity:1;}}
+.ach-toast-title{font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--accent);}
+.ach-toast-name{font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;color:var(--text-bright);letter-spacing:1px;}
+
+.streak-fire{font-size:22px;animation:flicker 1.2s infinite alternate;}
+@keyframes flicker{from{text-shadow:0 0 4px #e87000;}to{text-shadow:0 0 16px #ffb000,0 0 32px #ff6000;}}
+
+.block-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0;}
+.corner-deco{position:fixed;pointer-events:none;z-index:2;}
+.corner-deco.tl{top:0;left:0;width:80px;height:80px;border-top:2px solid var(--accent-dim);border-left:2px solid var(--accent-dim);}
+.corner-deco.br{bottom:0;right:0;width:80px;height:80px;border-bottom:2px solid var(--accent-dim);border-right:2px solid var(--accent-dim);}
+.ark-ticker{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent-dim);letter-spacing:2px;border-top:1px solid var(--border);padding:6px 0;margin-top:12px;}
+.ark-summary-big{font-family:'Rajdhani',sans-serif;font-size:60px;font-weight:700;color:var(--accent);line-height:1;text-shadow:0 0 40px rgba(232,168,56,0.4);text-align:center;}
+#furigana{font-family:'Share Tech Mono',monospace!important;font-size:18px!important;color:var(--accent)!important;letter-spacing:3px;padding:8px;background:rgba(232,168,56,0.05);border:1px solid var(--accent-dim);margin-top:8px;text-align:center;}
+</style>
+</head>
+<body>
+<div class="corner-deco tl"></div>
+<div class="corner-deco br"></div>
+<div id="app"></div>
+<script>
+const app=document.getElementById("app");
+
+/* ── STATE ── */
+// Safe localStorage parser — returns fallback if missing or corrupt
+function lsGet(key, fallback){
+  try{let v=localStorage.getItem(key);return v!==null?JSON.parse(v):fallback;}
+  catch(e){return fallback;}
+}
+
+let profiles     = lsGet("profiles", {});
+let globalStats  = lsGet("globalStats", {xp:0,level:0,totalCorrect:0,totalSessions:0,grindDays:0,lastDay:''});
+let playedGroups = lsGet("playedGroups", {});
+let achievements = lsGet("achievements", {});
+let dailyMissions= lsGet("dailyMissions", {date:'',missions:[],done:[],progress:{}});
+
+// ── Sanitize profiles: remove null/corrupt entries, repair missing fields ──
+(function sanitizeProfiles(){
+  if(!profiles || typeof profiles !== 'object'){profiles={};return;}
+  Object.keys(profiles).forEach(name=>{
+    let p=profiles[name];
+    if(!p || typeof p !== 'object'){
+      delete profiles[name]; // Remove corrupt entry
+    } else {
+      if(!Array.isArray(p.words)) p.words=[];
+      if(typeof p.xp !== 'number') p.xp=0;
+      // Repair any corrupt word entries
+      p.words=p.words.filter(w=>w && typeof w==='object' && w.kanji);
+      p.words.forEach(w=>{
+        if(typeof w.correct !== 'number') w.correct=0;
+        if(typeof w.wrong   !== 'number') w.wrong=0;
+        if(!w.hira) w.hira='';
+        if(!w.arti) w.arti='';
+      });
+    }
+  });
+})();
+
+// ── Sanitize globalStats: fill missing fields ──
+globalStats = Object.assign({xp:0,level:0,totalCorrect:0,totalSessions:0,grindDays:0,lastDay:''}, globalStats||{});
+if(typeof globalStats.xp !== 'number') globalStats.xp=0;
+
+let currentProfile=null,words=[],sessionWords=[],gameMode="",gameType="",currentWord={};
+let stepSize=25,currentStepAmount=0,answerDelay=1500,hardcoreMode=false,hardcoreTimer=2000;
+let lives=4,timerInterval=null,isLocked=false;
+let sessionCorrect=0,sessionTotal=0,sessionWrong=0,combo=0,sessionComboMax=0;
+let currentBlockStart=0,currentBlockEnd=0,isCustomMode=false,customPool=[];
+let sessionXpStart=0,sessionXpGain=0,sessionLevelStart=0;
+let _customAmt=10;
+let dailyProgress={correct:0,sessions:0,combo:0,noerror:0};
+let sessionHistory=lsGet("sessionHistory", []);
+let appLang=lsGet("appLang","jp"); // "jp" = Japanese, "en" = English
+let globalMode=lsGet("globalMode",false); // mission select: global mode (kanji+arti only)
+let resetCount=lsGet("resetCount",0); // how many times player has done a full reset
+let choiceCount=Math.max(4,Math.min(8,lsGet("choiceCount",4))); // number of choices in multi-choice mode (4–8)
+let sessionWordLimit=lsGet("sessionWordLimit",0); // 0 = no limit; otherwise cap words per session (10–100)
+let randomOptions=lsGet("randomOptions",false); // pull distractors from full vocab (outside current group)
+if(!Array.isArray(sessionHistory)) sessionHistory=[];
+
+/* ── LANGUAGE HELPER ── */
+const T={
+  jp:{
+    menu:"メインメニュー",deployOp:"⬡ &nbsp;ゲームスタート",combatRec:"▣ &nbsp;戦闘記録",
+    achiev:"🏆 &nbsp;実績ギャラリー",dailyMiss:"◈ &nbsp;デイリーミッション",
+    vocabDB:"📖 &nbsp;単語データベース",sessHist:"📋 &nbsp;セッション履歴",
+    transmit:"⇪ &nbsp;進捗を送信",langBtn:"EN",langLabel:"言語",
+    howToPlay:"❓ &nbsp;遊び方",
+    // header/nav
+    back:"戻る",profile:"プロフィール",selectProfile:"オペレーター選択",
+    newProfile:"＋ 新規オペレーター",deleteProfile:"削除",confirmDelete:"本当に削除しますか？",
+    enterName:"オペレーター名を入力",create:"作成",cancel:"キャンセル",
+    // stats
+    operator:"オペレーター",streak:"連続ログイン",missions:"ミッション",
+    sessions:"セッション数",avgAcc:"平均正解率",best:"最高評価",totalXp:"合計XP",
+    // game mode
+    selectMode:"ゲームモード選択",modeKanji:"漢字 → 読み",modeHira:"読み → 漢字",
+    modeArti:"漢字 → 意味",modeChoice:"四択クイズ",
+    startGame:"ゲーム開始",customAmt:"カスタム出題数",customBlock:"ブロック選択",
+    allWords:"全単語",
+    // gameplay
+    correct:"正解！",wrong:"不正解",lives:"ライフ",combo:"コンボ",
+    revealFuri:"読み仮名を表示",skip:"スキップ",next:"次へ",
+    // results
+    sessionComplete:"セッション完了",accuracy:"正解率",grade:"評価",
+    xpGained:"獲得XP",backMenu:"メインメニューへ",playAgain:"もう一度",
+    // vocab
+    vocabTitle:"単語データベース",masteredWords:"習得済み単語",totalWords:"総単語数",
+    // history
+    histTitle:"セッション履歴",runs:"回",recentOps:"直近のオペレーション",clearHist:"✕ 履歴を削除",
+    confirmClearHist:"全セッション履歴を削除しますか？",
+    // daily missions
+    todayMissions:"本日のミッション",grindStreak:"連続ログイン",
+    dayStreak:"日連続",keepStreak:"毎日ログインしてストリークを維持しよう！",
+    resets:"リセット",
+    // achievements
+    achievTitle:"実績一覧",locked:"未達成",unlocked:"達成済み",
+    achUnlocked:"⬡ 実績解除",xpBonus:"XP ボーナス",
+    achNames:{
+      first_blood:"初陣",centurion:"百人斬り",veteran:"歴戦の勇士",legend:"伝説",
+      lv10:"士官昇進",lv25:"現場昇進",lv50:"エリート昇進",lv80:"最高位",
+      combo5:"連続攻撃",combo10:"止まらない",combo20:"連鎖反応",
+      sessions10:"精鋭",sessions50:"容赦なし",
+      streak3:"3日戦士",streak7:"週間戦士",streak30:"月間伝説",
+      perfect10:"完璧",speedster:"スピードスター",
+      master10:"学者",master50:"賢者",
+      reset1:"初回リセット",reset2:"二重リセット",reset3:"三重の脅威",
+      reset5:"無限ループ",reset10:"無限オペレーター",
+    },
+    achDescs:{
+      first_blood:"{1}問正解する",centurion:"{100}問正解する",veteran:"{500}問正解する",legend:"{2000}問正解する",
+      lv10:"レベル{10}に到達",lv25:"レベル{25}に到達",lv50:"レベル{50}に到達",lv80:"レベル{80}に到達",
+      combo5:"1セッションで{5}コンボ達成",combo10:"1セッションで{10}コンボ達成",combo20:"1セッションで{20}コンボ達成",
+      sessions10:"{10}セッション完了",sessions50:"{50}セッション完了",
+      streak3:"{3}日連続ログイン",streak7:"{7}日連続ログイン",streak30:"{30}日連続ログイン",
+      perfect10:"ミスなし10問正解",speedster:"ハードコードセッションに勝利",
+      master10:"{10}単語を習得（≥5回正解）",master50:"{50}単語を習得",
+      reset1:"1回フルリセット完了",reset2:"2回フルリセット完了",reset3:"3回フルリセット完了",
+      reset5:"5回フルリセット完了",reset10:"10回フルリセット完了",
+    },
+    // daily mission titles
+    missionTitles:{
+      m_c20:"本日20問正解する",m_c50:"本日50問正解する",
+      m_s2:"本日2セッション完了",m_cb8:"8コンボ達成",
+      m_ne10:"ミスなし10問正解",m_c100:"本日100問正解する",
+      m_s3:"本日3セッション完了",m_cb15:"15コンボ達成",
+    },
+    // prestige / reset UI
+    allComplete:"全{N}実績達成！",
+    prestigeReset:"⟳ プレステージリセット",
+    prestigeBtn:"🔁 プレステージリセット → {M}× 難易度",
+    prestigeLocked:"🔒 プレステージリセット解除済み — まず全実績を達成してください",
+    prestigeRemaining:"{R}個残り · リセット回数: {C}",
+    trueMax:"👑 全実績達成 — 最高難易度到達 — 真の伝説",
+    hardnessBanner:"⚡ リセット #{N} アクティブ — 難易度 {M}×",
+    // share
+    shareTitle:"進捗を送信",
+    // settings
+    settings:"設定",hardcoreMode:"ハードコアモード",answerDelay:"回答遅延",
+    globalMode:"グローバルモード（漢字＋意味のみ）",
+  },
+  en:{
+    menu:"MAIN MENU",deployOp:"⬡ &nbsp;Start Game",combatRec:"▣ &nbsp;Combat Records",
+    achiev:"🏆 &nbsp;Achievement Gallery",dailyMiss:"◈ &nbsp;Daily Missions",
+    vocabDB:"📖 &nbsp;Vocabulary Database",sessHist:"📋 &nbsp;Session History",
+    transmit:"⇪ &nbsp;Transmit Progress",langBtn:"JP",langLabel:"Language",
+    howToPlay:"❓ &nbsp;How to Play",
+    // header/nav
+    back:"BACK",profile:"PROFILE",selectProfile:"SELECT OPERATOR",
+    newProfile:"+ NEW OPERATOR",deleteProfile:"DELETE",confirmDelete:"Really delete this profile?",
+    enterName:"Enter operator name",create:"CREATE",cancel:"CANCEL",
+    // stats
+    operator:"Operator",streak:"Streak",missions:"Missions",
+    sessions:"Sessions",avgAcc:"Avg Acc.",best:"Best",totalXp:"Total XP",
+    // game mode
+    selectMode:"SELECT MODE",modeKanji:"Kanji → Reading",modeHira:"Reading → Kanji",
+    modeArti:"Kanji → Meaning",modeChoice:"Multiple Choice",
+    startGame:"START",customAmt:"Custom Amount",customBlock:"Block Select",
+    allWords:"All Words",
+    // gameplay
+    correct:"CORRECT!",wrong:"WRONG",lives:"LIVES",combo:"COMBO",
+    revealFuri:"Reveal Furigana",skip:"SKIP",next:"NEXT",
+    // results
+    sessionComplete:"SESSION COMPLETE",accuracy:"Accuracy",grade:"Grade",
+    xpGained:"XP Gained",backMenu:"MAIN MENU",playAgain:"PLAY AGAIN",
+    // vocab
+    vocabTitle:"VOCABULARY DATABASE",masteredWords:"Mastered Words",totalWords:"Total Words",
+    // history
+    histTitle:"Session History",runs:"RUNS",recentOps:"RECENT OPERATIONS — LAST",
+    clearHist:"✕ &nbsp;CLEAR HISTORY",confirmClearHist:"Clear all session history?",
+    // daily missions
+    todayMissions:"TODAY'S MISSIONS",grindStreak:"GRIND STREAK",
+    dayStreak:"DAY CONSECUTIVE STREAK",keepStreak:"Log in daily to keep your streak alive!",
+    resets:"RESETS",
+    // achievements
+    achievTitle:"ACHIEVEMENTS",locked:"LOCKED",unlocked:"UNLOCKED",
+    achUnlocked:"⬡ ACHIEVEMENT UNLOCKED",xpBonus:"XP BONUS",
+    achNames:{
+      first_blood:"First Blood",centurion:"Centurion",veteran:"Veteran",legend:"Legendary",
+      lv10:"Cadet Promotion",lv25:"Field Promotion",lv50:"Elite Promotion",lv80:"Supreme Class",
+      combo5:"Hot Streak",combo10:"Unstoppable",combo20:"Chain Reaction",
+      sessions10:"Dedicated",sessions50:"Relentless",
+      streak3:"3-Day Warrior",streak7:"Week Warrior",streak30:"Monthly Legend",
+      perfect10:"Flawless",speedster:"Speedster",
+      master10:"Scholar",master50:"Sage",
+      reset1:"First Reset",reset2:"Double Reset",reset3:"Triple Threat",
+      reset5:"Endless Loop",reset10:"Infinite Operator",
+    },
+    achDescs:{
+      first_blood:"Answer {1} correctly",centurion:"Answer {100} correctly",veteran:"Answer {500} correctly",legend:"Answer {2000} correctly",
+      lv10:"Reach level {10}",lv25:"Reach level {25}",lv50:"Reach level {50}",lv80:"Reach level {80}",
+      combo5:"{5} combo in one session",combo10:"{10} combo in one session",combo20:"{20} combo in one session",
+      sessions10:"Complete {10} sessions",sessions50:"Complete {50} sessions",
+      streak3:"{3} consecutive login days",streak7:"{7} consecutive login days",streak30:"{30} consecutive login days",
+      perfect10:"10 correct with 0 mistakes",speedster:"Win a Hardcore session",
+      master10:"Master {10} words (≥5 correct)",master50:"Master {50} words",
+      reset1:"Complete 1 full reset",reset2:"Complete 2 full resets",reset3:"Complete 3 full resets",
+      reset5:"Complete 5 full resets",reset10:"Complete 10 full resets",
+    },
+    missionTitles:{
+      m_c20:"Answer 20 correctly today",m_c50:"Answer 50 correctly today",
+      m_s2:"Complete 2 sessions today",m_cb8:"Reach an 8-combo streak",
+      m_ne10:"10 correct with no mistakes",m_c100:"Answer 100 correctly today",
+      m_s3:"Complete 3 sessions today",m_cb15:"Reach a 15-combo streak",
+    },
+    prestigeReset:"⟳ PRESTIGE RESET",
+    prestigeBtn:"🔁 PRESTIGE RESET → {M}× HARDNESS",
+    prestigeLocked:"🔒 PRESTIGE RESET LOCKED — COMPLETE ALL ACHIEVEMENTS FIRST",
+    prestigeRemaining:"{R} remaining · Resets completed: {C}",
+    allComplete:"🎉 ALL {N} ACHIEVEMENTS COMPLETE!",
+    trueMax:"👑 ALL ACHIEVEMENTS COMPLETE — MAX HARDNESS REACHED — TRUE LEGEND",
+    hardnessBanner:"⚡ RESET #{N} ACTIVE — HARDNESS {M}×",
+    // share
+    shareTitle:"TRANSMIT PROGRESS",
+    // settings
+    settings:"SETTINGS",hardcoreMode:"Hardcore Mode",answerDelay:"Answer Delay",
+    globalMode:"Global Mode (Kanji+Meaning only)",
+  }
+};
+function t(key){return (T[appLang]||T.en)[key]||key;}
+
+/* ── RESET ACHIEVEMENTS ── */
+const RESET_ACHIEVEMENTS=[
+  {id:"reset1", resets:1,  mult:1.5, icon:"🔁", name:"First Reset",       desc:"Complete 1 full reset",          reward:1000},
+  {id:"reset2", resets:2,  mult:2.0, icon:"🔄", name:"Double Reset",       desc:"Complete 2 full resets",         reward:2500},
+  {id:"reset3", resets:3,  mult:2.5, icon:"⚡", name:"Triple Threat",      desc:"Complete 3 full resets",         reward:5000},
+  {id:"reset5", resets:5,  mult:3.0, icon:"💀", name:"Endless Loop",       desc:"Complete 5 full resets",         reward:10000},
+  {id:"reset10",resets:10, mult:4.0, icon:"👑", name:"Infinite Operator",  desc:"Complete 10 full resets",        reward:25000},
+];
+
+/* ── SAVE ── */
+function saveAll(){
+  localStorage.setItem("profiles",JSON.stringify(profiles));
+  localStorage.setItem("globalStats",JSON.stringify(globalStats));
+  localStorage.setItem("playedGroups",JSON.stringify(playedGroups));
+  localStorage.setItem("achievements",JSON.stringify(achievements));
+  localStorage.setItem("dailyMissions",JSON.stringify(dailyMissions));
+  localStorage.setItem("sessionHistory",JSON.stringify(sessionHistory));
+  localStorage.setItem("appLang",JSON.stringify(appLang));
+  localStorage.setItem("globalMode",JSON.stringify(globalMode));
+  localStorage.setItem("resetCount",JSON.stringify(resetCount));
+  localStorage.setItem("choiceCount",JSON.stringify(choiceCount));
+  localStorage.setItem("sessionWordLimit",JSON.stringify(sessionWordLimit));
+  localStorage.setItem("randomOptions",JSON.stringify(randomOptions));
+}
+
+
+/* ── HARDNESS MULTIPLIER ── */
+function getHardnessMult(){
+  let m=1.0;
+  RESET_ACHIEVEMENTS.forEach(r=>{if(resetCount>=r.resets)m=r.mult;});
+  return m;
+}
+function xpForLevel(lvl){return Math.min(100+Math.floor(lvl/10)*150,3000);}
+function calcLevel(totalXp){let l=0,x=totalXp;while(x>=xpForLevel(l)){x-=xpForLevel(l);l++;}return l;}
+function xpInCurrentLevel(totalXp){let l=0,x=totalXp;while(x>=xpForLevel(l)){x-=xpForLevel(l);l++;}return x;}
+function getRankTitle(level){
+  if(level>=80)return{title:"SUPREME OPERATOR",color:"#ff80ff",glow:"0 0 20px rgba(255,128,255,0.6)"};
+  if(level>=60)return{title:"SENIOR OPERATOR",color:"#e8a838",glow:"0 0 16px rgba(232,168,56,0.5)"};
+  if(level>=40)return{title:"ELITE OPERATOR",color:"#3a9a5c",glow:"0 0 14px rgba(58,154,92,0.5)"};
+  if(level>=25)return{title:"FIELD OPERATOR",color:"#3a72b0",glow:"none"};
+  if(level>=10)return{title:"CADET",color:"#6e7a8a",glow:"none"};
+  return{title:"RECRUIT",color:"#4a5060",glow:"none"};
+}
+function comboMultiplier(c){if(c>=20)return 3.0;if(c>=10)return 2.0;if(c>=5)return 1.5;return 1.0;}
+function shuffle(a){return a.sort(()=>Math.random()-0.5);}
+
+/* ── ACHIEVEMENTS ── */
+// Base thresholds — multiplied by hardness on each reset
+const ACH_BASE=[
+  {id:"first_blood", icon:"⚔️",  name:"First Blood",     baseDesc:"Answer {1} correctly",          reward:50,   type:"totalCorrect",   base:1},
+  {id:"centurion",   icon:"💯",  name:"Centurion",        baseDesc:"Answer {100} correctly",         reward:200,  type:"totalCorrect",   base:100},
+  {id:"veteran",     icon:"🎖️", name:"Veteran",          baseDesc:"Answer {500} correctly",         reward:500,  type:"totalCorrect",   base:500},
+  {id:"legend",      icon:"🏆", name:"Legendary",        baseDesc:"Answer {2000} correctly",        reward:2000, type:"totalCorrect",   base:2000},
+  {id:"lv10",        icon:"⬡",  name:"Cadet Promotion",  baseDesc:"Reach level {10}",               reward:300,  type:"level",          base:10},
+  {id:"lv25",        icon:"⬡",  name:"Field Promotion",  baseDesc:"Reach level {25}",               reward:600,  type:"level",          base:25},
+  {id:"lv50",        icon:"⬡",  name:"Elite Promotion",  baseDesc:"Reach level {50}",               reward:1500, type:"level",          base:50},
+  {id:"lv80",        icon:"👑", name:"Supreme Class",    baseDesc:"Reach level {80}",               reward:5000, type:"level",          base:80},
+  {id:"combo5",      icon:"🔥", name:"Hot Streak",       baseDesc:"{5} combo in one session",       reward:75,   type:"_combo",         base:5},
+  {id:"combo10",     icon:"💥", name:"Unstoppable",      baseDesc:"{10} combo in one session",      reward:150,  type:"_combo",         base:10},
+  {id:"combo20",     icon:"⚡", name:"Chain Reaction",   baseDesc:"{20} combo in one session",      reward:500,  type:"_combo",         base:20},
+  {id:"sessions10",  icon:"📋", name:"Dedicated",        baseDesc:"Complete {10} sessions",         reward:200,  type:"totalSessions",  base:10},
+  {id:"sessions50",  icon:"📋", name:"Relentless",       baseDesc:"Complete {50} sessions",         reward:800,  type:"totalSessions",  base:50},
+  {id:"streak3",     icon:"📅", name:"3-Day Warrior",    baseDesc:"{3} consecutive login days",     reward:150,  type:"grindDays",      base:3},
+  {id:"streak7",     icon:"📅", name:"Week Warrior",     baseDesc:"{7} consecutive login days",     reward:500,  type:"grindDays",      base:7},
+  {id:"streak30",    icon:"📅", name:"Monthly Legend",   baseDesc:"{30} consecutive login days",    reward:3000, type:"grindDays",      base:30},
+  {id:"perfect10",   icon:"✨", name:"Flawless",         baseDesc:"10 correct with 0 mistakes",     reward:300,  type:"_perfect",       base:0},
+  {id:"speedster",   icon:"⏱️", name:"Speedster",        baseDesc:"Win a Hardcore session",         reward:400,  type:"_hardcoreWin",   base:0},
+  {id:"master10",    icon:"📖", name:"Scholar",          baseDesc:"Master {10} words (≥5 correct)", reward:100,  type:"masteredWords",  base:10},
+  {id:"master50",    icon:"📚", name:"Sage",             baseDesc:"Master {50} words",              reward:500,  type:"masteredWords",  base:50},
+];
+
+// Build ACHIEVEMENTS dynamically — thresholds scale with hardness
+function buildAchievements(){
+  let hm=getHardnessMult();
+  let lang=T[appLang]||T.en;
+  return ACH_BASE.map(a=>{
+    let threshold=Math.ceil(a.base*hm);
+    let rawDesc=(lang.achDescs&&lang.achDescs[a.id])||a.baseDesc;
+    let desc=rawDesc.replace(/\{(\d+)\}/,()=>threshold);
+    let name=(lang.achNames&&lang.achNames[a.id])||a.name;
+    return {...a, name, threshold, desc,
+      check:(g,p)=>{
+        if(a.type==='_perfect')     return !!g._perfect;
+        if(a.type==='_hardcoreWin') return !!g._hardcoreWin;
+        if(a.type==='_combo')       return (g._combo||0)>=threshold;
+        if(a.type==='masteredWords') return p&&p.words&&p.words.filter(w=>w.correct>=5).length>=threshold;
+        return (g[a.type]||0)>=threshold;
+      }
+    };
+  });
+}
+// Recompute on access
+function getAchievements(){return buildAchievements();}
+
+function allNonResetUnlocked(){
+  let achs=getAchievements();
+  return achs.every(a=>achievements[a.id]);
+}
+
+function checkAchievements(extra={}){
+  let profile=currentProfile?profiles[currentProfile]:null;
+  let g={...globalStats,...extra};
+  let achs=getAchievements();
+  let unlocked=[];
+  achs.forEach(a=>{
+    if(!achievements[a.id]&&a.check(g,profile)){
+      achievements[a.id]={unlockedAt:Date.now()};
+      globalStats.xp+=a.reward;
+      globalStats.level=calcLevel(globalStats.xp);
+      unlocked.push(a);
+    }
+  });
+  if(unlocked.length)saveAll();
+  return unlocked;
+}
+function showAchievementToast(a){
+  let toast=document.createElement("div");
+  toast.className="ach-toast";
+  toast.innerHTML=`<div class="ach-toast-title">${t('achUnlocked')}</div><div class="ach-toast-name">${a.icon} ${a.name}</div><div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent);margin-top:4px;">+${a.reward} ${t('xpBonus')}</div>`;
+  document.body.appendChild(toast);
+  setTimeout(()=>{toast.style.transition="opacity 0.3s";toast.style.opacity="0";setTimeout(()=>toast.remove(),300);},3200);
+}
+
+/* ── DAILY MISSIONS ── */
+const MISSION_POOL=[
+  {id:"m_c20",  title:"Answer 20 correctly today",  reward:100,target:20, type:"correct"},
+  {id:"m_c50",  title:"Answer 50 correctly today",  reward:250,target:50, type:"correct"},
+  {id:"m_s2",   title:"Complete 2 sessions today",  reward:80, target:2,  type:"sessions"},
+  {id:"m_cb8",  title:"Reach an 8-combo streak",    reward:120,target:8,  type:"combo"},
+  {id:"m_ne10", title:"10 correct with no mistakes",reward:150,target:10, type:"noerror"},
+  {id:"m_c100", title:"Answer 100 correctly today", reward:400,target:100,type:"correct"},
+  {id:"m_s3",   title:"Complete 3 sessions today",  reward:180,target:3,  type:"sessions"},
+  {id:"m_cb15", title:"Reach a 15-combo streak",    reward:300,target:15, type:"combo"},
+];
+
+function ensureDailyMissions(){
+  let today=new Date().toDateString();
+  if(dailyMissions.date!==today){
+    dailyMissions={date:today,missions:shuffle([...MISSION_POOL]).slice(0,3),done:[],progress:{}};
+    dailyProgress={correct:0,sessions:0,combo:0,noerror:0};
+    saveAll();
+  } else {
+    dailyProgress=dailyMissions.progress||{correct:0,sessions:0,combo:0,noerror:0};
+  }
+}
+
+function updateDailyProgress(type,val){
+  dailyProgress[type]=(dailyProgress[type]||0)+val;
+  dailyMissions.progress=dailyProgress;
+  dailyMissions.missions.forEach(m=>{
+    if(!dailyMissions.done.includes(m.id)&&(dailyProgress[m.type]||0)>=m.target){
+      dailyMissions.done.push(m.id);
+      globalStats.xp+=m.reward;
+      globalStats.level=calcLevel(globalStats.xp);
+      showMissionToast(m);
+    }
+  });
+  saveAll();
+}
+
+function showMissionToast(m){
+  let lang=T[appLang]||T.en;
+  let title=(lang.missionTitles&&lang.missionTitles[m.id])||m.title;
+  let toastEl=document.createElement("div");
+  toastEl.className="ach-toast";
+  toastEl.style.borderLeftColor="var(--blue)";
+  toastEl.innerHTML=`<div class="ach-toast-title" style="color:var(--blue);">◈ ${appLang==='jp'?'ミッション完了':'MISSION COMPLETE'}</div><div class="ach-toast-name">${title}</div><div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent);margin-top:4px;">+${m.reward} XP</div>`;
+  document.body.appendChild(toastEl);
+  setTimeout(()=>{toastEl.style.transition="opacity 0.3s";toastEl.style.opacity="0";setTimeout(()=>toastEl.remove(),300);},3500);
+}
+
+/* ── STREAK ── */
+function updateDailyStreak(){
+  let today=new Date().toDateString();
+  let yesterday=new Date(Date.now()-86400000).toDateString();
+  if(globalStats.lastDay===today)return;
+  globalStats.grindDays=(globalStats.lastDay===yesterday)?(globalStats.grindDays||0)+1:1;
+  globalStats.lastDay=today;
+  saveAll();
+}
+
+/* ── LEVEL UP OVERLAY ── */
+function showLevelUp(newLevel,cb){
+  let rank=getRankTitle(newLevel);
+  let ov=document.createElement("div");
+  ov.className="levelup-overlay";
+  ov.innerHTML=`<div class="levelup-box" style="box-shadow:${rank.glow};"><div class="levelup-label">LEVEL UP</div><div class="levelup-num" style="color:${rank.color};">${newLevel}</div><div class="levelup-rank" style="color:${rank.color};">${rank.title}</div><div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:16px;letter-spacing:2px;">TAP TO CONTINUE</div></div>`;
+  document.body.appendChild(ov);
+  let done=false;
+  function proceed(){if(done)return;done=true;ov.remove();if(cb)cb();}
+  ov.addEventListener("click",proceed);
+  setTimeout(proceed,4000);
+}
+
+/* ── XP BAR WIDGET ── */
+function renderXpBar(){
+  let lvl=globalStats.level,rank=getRankTitle(lvl);
+  let cur=xpInCurrentLevel(globalStats.xp),need=xpForLevel(lvl);
+  let pct=Math.min(100,Math.floor((cur/need)*100));
+  return `<div class="xp-bar-wrap"><div class="xp-bar-header"><div><span class="xp-rank" style="color:${rank.color};">LV ${lvl}</span><span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-left:8px;letter-spacing:1px;">${rank.title}</span></div><div class="xp-nums">${cur} / ${need} XP</div></div><div class="xp-bar-bg"><div class="xp-bar-fill" style="width:${pct}%;"></div><div class="xp-bar-shine"></div></div></div>`;
+}
+
+/* ── MENU ── */
+function renderMenu(){
+  ensureDailyMissions();updateDailyStreak();
+  let achs=checkAchievements();
+  achs.forEach((a,i)=>setTimeout(()=>showAchievementToast(a),400+i*3300));
+  let streakEmoji=globalStats.grindDays>=7?"🔥":globalStats.grindDays>=3?"🌟":"📅";
+  // Current hardness multiplier based on resetCount
+  let currentMult=1.0;
+  let rach=RESET_ACHIEVEMENTS.filter(r=>resetCount>=r.resets);
+  if(rach.length>0)currentMult=rach[rach.length-1].mult;
+  let resetBadge=resetCount>0?`<div class="ark-badge" style="color:var(--purple);border-color:var(--purple);background:rgba(156,85,208,0.1);">RESET ×${resetCount} | ${currentMult}× HARD</div>`:'';
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><div style="flex:1;"><div class="ark-title">KOTOBA <span>TRAINER</span></div><div class="ark-badge">PROTOCOL v3.0 // RHODES ISLAND</div>${resetBadge}</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:2px;text-transform:uppercase;">${t('langLabel')}</div>
+      <button id="btn-lang-toggle" style="width:auto;min-width:52px;padding:5px 12px;font-size:12px;font-weight:700;border-color:var(--accent-dim);color:var(--accent);justify-content:center;letter-spacing:2px;">${t('langBtn')}</button>
+    </div>
+    </div>
+    ${renderXpBar()}
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">${t('operator')}</div><div class="ark-stat-value" style="font-size:13px;">${currentProfile||'---'}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${streakEmoji} ${t('streak')}</div><div class="ark-stat-value">${globalStats.grindDays}d</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('missions')}</div><div class="ark-stat-value" style="color:${dailyMissions.done.length===dailyMissions.missions.length?'var(--green)':'var(--accent)'};">${dailyMissions.done.length}/${dailyMissions.missions.length}</div></div>
+    </div>
+    <div class="ark-section">${t('menu')}</div>
+    <button data-action="renderProfile">${t('deployOp')}</button>
+    <button data-action="renderStats">${t('combatRec')}</button>
+    <button data-action="renderAchievements">${t('achiev')}</button>
+    <button data-action="renderDailyMissions">${t('dailyMiss')}</button>
+    <button data-action="renderKotoba">${t('vocabDB')}</button>
+    <button data-action="renderHistory">${t('sessHist')}</button>
+    <button data-action="renderShare">${t('transmit')}</button>
+    <button id="btn-how-to-play" style="border-color:var(--blue);color:var(--blue);background:rgba(58,114,176,0.05);">${t('howToPlay')}</button>
+    <div class="ark-ticker">// RHODES ISLAND PHARMACEUTICAL // TRAINING PROTOCOL ACTIVE // ${globalStats.grindDays} DAY STREAK //</div>
+  </div>`;
+  document.getElementById("btn-lang-toggle").addEventListener("click",()=>{
+    appLang=appLang==="jp"?"en":"jp";saveAll();renderMenu();
+  });
+  document.getElementById("btn-how-to-play").addEventListener("click", renderHowToPlay);
+}
+
+/* ── HOW TO PLAY ── */
+function renderHowToPlay(){
+  let isJP=appLang==='jp';
+
+  let sections=isJP?`
+    <div class="ark-section">👤 プロフィールの作り方</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:1.9;letter-spacing:0.5px;margin:0;">
+        1. メインメニューから <span style="color:var(--accent);">「ゲームスタート」</span> を選択<br>
+        2. <span style="color:var(--accent);">「オペレーター名」</span> の入力欄に名前を入力する<br>
+        3. CSVファイルまたはテキストで単語をインポートする<br>
+        4. <span style="color:var(--accent);">「インポート」</span> ボタンを押して作成完了！
+      </p>
+    </div>
+
+    <div class="ark-section">🇯🇵 日本語モードのインポート形式</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:1.8;margin:0 0 10px;">
+        各行を以下の形式で入力してください：<br>
+        <span style="color:var(--accent2);font-size:13px;letter-spacing:1px;">漢字,ひらがな,意味</span>
+      </p>
+      <div style="background:var(--bg-deep);border:1px solid var(--border);padding:12px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green);line-height:2.1;">
+        日本語,にほんご,Japanese language<br>
+        学校,がっこう,school<br>
+        食べる,たべる,to eat<br>
+        電車,でんしゃ,train<br>
+        友達,ともだち,friend
+      </div>
+      <p style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin:8px 0 0;line-height:1.7;">
+        ※ 3列必須：漢字 / ひらがな / 意味<br>
+        ※ カンマ区切り、1行1単語
+      </p>
+    </div>
+
+    <div class="ark-section">🌐 グローバルモードのインポート形式</div>
+    <div style="background:var(--bg-card);border:1px solid rgba(58,114,176,0.4);border-left:3px solid var(--blue);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:1.8;margin:0 0 10px;">
+        ひらがなが不要な場合は2列目に <span style="color:var(--accent2);">「-」</span> を入れるだけ：<br>
+        <span style="color:var(--accent2);font-size:13px;letter-spacing:1px;">単語,-,意味</span>
+      </p>
+      <div style="background:var(--bg-deep);border:1px solid var(--border);padding:12px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green);line-height:2.1;">
+        apple,-,りんご<br>
+        cat,-,猫<br>
+        運動,-,exercise<br>
+        勇気,-,courage
+      </div>
+      <p style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin:8px 0 0;line-height:1.7;">
+        ※ 2列目は使われません。何を入れても大丈夫です。
+      </p>
+    </div>
+
+    <div class="ark-section">☠ ハードコアモード</div>
+    <div style="background:rgba(201,64,64,0.07);border:1px solid rgba(201,64,64,0.3);border-left:3px solid var(--red);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:2;margin:0;">
+        🔴 <span style="color:var(--red);">タイマー制限</span> — 時間内に答えないとライフを失う<br>
+        🔴 <span style="color:var(--red);">ライフ制 ❤❤❤❤</span> — ライフが0でゲームオーバー<br>
+        🔴 ミスするとXPが減少（−15XP）<br>
+        🔴 タイマー時間はゲーム設定画面で変更可能<br>
+        ⭐ 全問正解するとスピードスター実績を獲得！
+      </p>
+    </div>`
+
+  :`
+    <div class="ark-section">👤 How to Create a Profile</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:1.9;letter-spacing:0.5px;margin:0;">
+        1. From the main menu tap <span style="color:var(--accent);">"Start Game"</span><br>
+        2. Type a name in the <span style="color:var(--accent);">"Operator Designation"</span> field<br>
+        3. Import vocabulary via CSV file or paste text in the box below<br>
+        4. Hit <span style="color:var(--accent);">"Import"</span> — your profile is ready!
+      </p>
+    </div>
+
+    <div class="ark-section">🇯🇵 Japanese Mode — Import Format</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:1.8;margin:0 0 10px;">
+        Each line must follow this format:<br>
+        <span style="color:var(--accent2);font-size:13px;letter-spacing:1px;">Kanji,Hiragana,Meaning</span>
+      </p>
+      <div style="background:var(--bg-deep);border:1px solid var(--border);padding:12px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green);line-height:2.1;">
+        日本語,にほんご,Japanese language<br>
+        学校,がっこう,school<br>
+        食べる,たべる,to eat<br>
+        電車,でんしゃ,train<br>
+        友達,ともだち,friend
+      </div>
+      <p style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin:8px 0 0;line-height:1.7;">
+        ※ 3 columns required: Kanji / Hiragana / Meaning<br>
+        ※ Comma-separated, one word per line, no headers
+      </p>
+    </div>
+
+    <div class="ark-section">🌐 Global Mode — Import Format</div>
+    <div style="background:var(--bg-card);border:1px solid rgba(58,114,176,0.4);border-left:3px solid var(--blue);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:1.8;margin:0 0 10px;">
+        Global mode ignores hiragana. Just put <span style="color:var(--accent2);">"-"</span> in column 2:<br>
+        <span style="color:var(--accent2);font-size:13px;letter-spacing:1px;">Word,-,Meaning</span>
+      </p>
+      <div style="background:var(--bg-deep);border:1px solid var(--border);padding:12px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green);line-height:2.1;">
+        apple,-,りんご<br>
+        cat,-,猫<br>
+        運動,-,exercise<br>
+        勇気,-,courage
+      </div>
+      <p style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin:8px 0 0;line-height:1.7;">
+        ※ Column 2 is ignored — put anything there, it doesn't matter.
+      </p>
+    </div>
+
+    <div class="ark-section">☠ Hardcore Mode</div>
+    <div style="background:rgba(201,64,64,0.07);border:1px solid rgba(201,64,64,0.3);border-left:3px solid var(--red);padding:16px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">
+      <p style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text);line-height:2;margin:0;">
+        🔴 <span style="color:var(--red);">Timer pressure</span> — answer before the bar runs out or lose a life<br>
+        🔴 <span style="color:var(--red);">4 lives ❤❤❤❤</span> — reach zero and it's game over<br>
+        🔴 Each wrong answer deducts XP (−15XP per miss)<br>
+        🔴 Timer length is adjustable in the Game Config screen<br>
+        ⭐ Beat a full session without dying to unlock the Speedster achievement!
+      </p>
+    </div>`;
+
+  app.innerHTML=`<div class="container">
+    <div class="ark-header">
+      <button class="back" data-action="renderMenu">${t('back')}</button>
+      <div class="ark-title">${isJP?'遊び方 <span>ガイド</span>':'How to <span>Play</span>'}</div>
+    </div>
+    ${sections}
+    <button data-action="renderMenu" style="justify-content:center;margin-top:6px;border-color:var(--accent-dim);color:var(--accent);">⬡ &nbsp;${isJP?'メインメニューへ戻る':'Return to Main Menu'}</button>
+  </div>`;
+}
+
+/* ── DAILY MISSIONS ── */
+function renderDailyMissions(){
+  ensureDailyMissions();
+  let html=dailyMissions.missions.map(m=>{
+    let done=dailyMissions.done.includes(m.id);
+    let prog=dailyProgress[m.type]||0;
+    let pct=Math.min(100,Math.floor((prog/m.target)*100));
+    let lang=T[appLang]||T.en;
+    let title=(lang.missionTitles&&lang.missionTitles[m.id])||m.title;
+    return `<div class="daily-card ${done?'done':''}"><div class="daily-check">${done?'✅':'⬜'}</div><div class="daily-info"><div class="daily-title">${title}</div><div class="daily-prog">${Math.min(prog,m.target)} / ${m.target}${done?` — ${appLang==='jp'?'完了':'COMPLETE'}`:''}</div><div class="ark-progress" style="margin-top:6px;"><div class="ark-progress-fill" style="width:${pct}%;"></div></div></div><div class="daily-reward">+${m.reward} XP</div></div>`;
+  }).join('');
+  let r=new Date();r.setHours(24,0,0,0);let ms=r-Date.now();
+  let hL=Math.floor(ms/3600000),mL=Math.floor((ms%3600000)/60000);
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${appLang==='jp'?'デイリー <span>ミッション</span>':'Daily <span>Missions</span>'}</div><div class="ark-badge" style="margin-left:auto;">${t('resets')} ${hL}h ${mL}m</div></div>
+    ${renderXpBar()}
+    <div class="ark-section">${t('todayMissions')}</div>${html}
+    <div class="ark-section">${t('grindStreak')}</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);padding:20px;clip-path:polygon(8px 0%,100% 0%,100% calc(100% - 8px),calc(100% - 8px) 100%,0% 100%,0% 8px);text-align:center;">
+      <div class="streak-fire">🔥</div>
+      <div style="font-family:'Rajdhani',sans-serif;font-size:50px;font-weight:700;color:var(--accent);line-height:1;">${globalStats.grindDays}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);">${t('dayStreak')}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:8px;">${t('keepStreak')}</div>
+    </div>
+  </div>`;
+}
+
+/* ── ACHIEVEMENTS ── */
+function renderAchievements(){
+  let achs=getAchievements();
+  let hm=getHardnessMult();
+  let unlocked=achs.filter(a=>achievements[a.id]).length;
+  let allDone=unlocked===achs.length;
+  let profile=currentProfile?profiles[currentProfile]:null;
+  let masteredCount=profile&&profile.words?profile.words.filter(w=>(w.correct||0)>=5).length:0;
+
+  function getCurrentVal(a){
+    if(a.type==="totalCorrect") return globalStats.totalCorrect||0;
+    if(a.type==="level") return globalStats.level||0;
+    if(a.type==="totalSessions") return globalStats.totalSessions||0;
+    if(a.type==="grindDays") return globalStats.grindDays||0;
+    if(a.type==="masteredWords") return masteredCount;
+    return achievements[a.id]?1:0;
+  }
+
+  function makeCard(a){
+    let done=!!achievements[a.id];
+    let cur=getCurrentVal(a);
+    let req=a.threshold||a.base||1;
+    let pct=a.base>0?Math.min(100,Math.floor((Math.min(cur,req)/req)*100)):done?100:0;
+    let hardTag=(hm>1&&a.base>0)?`<span style="font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--red);letter-spacing:1px;"> ×${hm}</span>`:'';
+    let prog=done?'':a.base>0?`<div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);margin-top:4px;">${Math.min(cur,req)} / ${req}</div><div class="ark-progress" style="margin-top:2px;"><div class="ark-progress-fill" style="width:${pct}%;"></div></div>`:'';
+    return `<div class="ach-card ${done?'unlocked':'locked'}">
+      <div class="ach-icon">${a.icon}</div>
+      <div class="ach-name">${a.name}${hardTag}</div>
+      <div class="ach-desc">${a.desc}</div>
+      <div class="ach-reward">+${a.reward} XP${done?' ✓':''}</div>
+      ${prog}
+    </div>`;
+  }
+
+  let cards=achs.map(makeCard).join('');
+
+  let hardBanner=hm>1?`<div style="background:rgba(201,64,64,0.08);border:1px solid rgba(201,64,64,0.3);border-left:3px solid var(--red);padding:10px 14px;margin-bottom:12px;">
+    <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--red);letter-spacing:2px;">${(t('hardnessBanner')).replace('{N}',resetCount).replace('{M}',hm)}</div>
+    <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:3px;">${appLang==='jp'?`例: "100問正解" → "${Math.round(100*hm)}問正解" · "10コンボ" → "${Math.round(10*hm)}コンボ"`:`e.g. "100 correct" → "${Math.round(100*hm)} correct" · "10 combo" → "${Math.round(10*hm)} combo"`}</div>
+  </div>`:'';
+
+  let currentMult=1.0,nextReset=null;
+  RESET_ACHIEVEMENTS.forEach(r=>{if(resetCount>=r.resets)currentMult=r.mult;else if(!nextReset)nextReset=r;});
+
+  let resetSection='';
+  if(allDone){
+    if(nextReset){
+      let allCompleteText=t('allComplete').replace('{N}',achs.length);
+      let prestigeBtnText=t('prestigeBtn').replace('{M}',nextReset.mult);
+      let resetInfoEN=`Reset ×${resetCount} · Hardness ${currentMult}× → Next: ${nextReset.mult}×`;
+      let resetInfoJP=`リセット ×${resetCount} · 難易度 ${currentMult}× → 次: ${nextReset.mult}×`;
+      let threshInfoEN=`Clears achievements & multiplies all thresholds by ${nextReset.mult}×`;
+      let threshInfoJP=`実績をリセットし、全閾値を${nextReset.mult}×に乗算`;
+      resetSection=`<div class="ark-section" style="color:var(--purple);">${t('prestigeReset')}</div>
+      <div style="background:rgba(156,85,208,0.08);border:1px solid rgba(156,85,208,0.35);border-left:3px solid var(--purple);padding:12px 14px;margin-bottom:10px;">
+        <div style="font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;color:var(--purple);">${allCompleteText}</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:4px;">${appLang==='jp'?resetInfoJP:resetInfoEN}</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:2px;">${appLang==='jp'?threshInfoJP:threshInfoEN}</div>
+        <button id="btn-do-reset" style="margin-top:10px;border-color:rgba(156,85,208,0.5);color:var(--purple);justify-content:center;">${prestigeBtnText}</button>
+      </div>`;
+    } else {
+      resetSection=`<div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent);text-align:center;padding:16px;border:1px solid var(--accent-dim);">${t('trueMax')}</div>`;
+    }
+  } else {
+    let rem=achs.filter(a=>!achievements[a.id]).length;
+    let remText=t('prestigeRemaining').replace('{R}',rem).replace('{C}',resetCount);
+    resetSection=`<div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--border);padding:10px 14px;margin-top:10px;opacity:0.5;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--text-dim);">${t('prestigeLocked')}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:4px;">${remText}</div>
+    </div>`;
+  }
+
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${appLang==='jp'?'実績 <span>ギャラリー</span>':'Achievement <span>Gallery</span>'}</div><div class="ark-badge" style="margin-left:auto;">${unlocked}/${achs.length}</div></div>
+    <div class="ark-progress" style="margin-bottom:14px;"><div class="ark-progress-fill" style="width:${achs.length?Math.floor(unlocked/achs.length*100):0}%;"></div></div>
+    ${hardBanner}
+    <div class="ach-grid">${cards}</div>
+    ${resetSection}
+  </div>`;
+
+  let rb=document.getElementById("btn-do-reset");
+  if(rb) rb.addEventListener("click",()=>{
+    if(!nextReset)return;
+    let confirmMsg=appLang==='jp'
+      ?`プレステージリセット #${resetCount+1}?\n\n全実績がクリアされます。\n難易度: ${currentMult}× → ${nextReset.mult}×\n全閾値 ×${nextReset.mult}（例: 10コンボ → ${Math.ceil(10*nextReset.mult)}コンボ）\n\nXP・レベル・単語・セッションは保持されます。`
+      :`PRESTIGE RESET #${resetCount+1}?\n\nAll achievement unlocks CLEAR.\nHardness: ${currentMult}× → ${nextReset.mult}×\nAll thresholds ×${nextReset.mult} (e.g. 10 combo → ${Math.ceil(10*nextReset.mult)} combo)\n\nXP, level, words and sessions are preserved.`;
+    if(!confirm(confirmMsg))return;
+    achievements={};resetCount++;saveAll();
+    let toastEl=document.createElement("div");toastEl.className="ach-toast";toastEl.style.borderLeftColor="var(--purple)";
+    let resetToastMsg=appLang==='jp'?`実績リセット — 再度獲得しよう！`:`ACHIEVEMENTS RESET — RE-EARN THEM!`;
+    toastEl.innerHTML=`<div class="ach-toast-title" style="color:var(--purple);">🔁 ${appLang==='jp'?'プレステージ':'PRESTIGE'} #${resetCount}</div><div class="ach-toast-name">${appLang==='jp'?'難易度':'Hardness'} ${getHardnessMult()}×</div><div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--red);margin-top:4px;">${resetToastMsg}</div>`;
+    document.body.appendChild(toastEl);setTimeout(()=>{toastEl.style.transition="opacity 0.3s";toastEl.style.opacity="0";setTimeout(()=>toastEl.remove(),300);},4000);
+    renderAchievements();
+  });
+}
+
+function renderProfile(){
+  let profileNames=Object.keys(profiles).filter(n=>profiles[n]&&typeof profiles[n]==='object');
+  let listHtml=profileNames.length
+    ? profileNames.map((name,i)=>{
+        let p=profiles[name];
+        let lv=calcLevel((p&&typeof p.xp==='number'?p.xp:0));
+        return `<button id="prof-btn-${i}" data-name="${name.replace(/"/g,'&quot;')}">▶ &nbsp;${name}<span style="margin-left:auto;font-size:11px;color:var(--accent-dim);">LV${lv}</span></button>`;
+      }).join('')
+    : '<p style="color:var(--text-dim);font-family:\'Share Tech Mono\',monospace;font-size:12px;padding:10px 0;">// NO OPERATORS REGISTERED //</p>';
+
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button id="btn-back-profile" class="back">${t('back')}</button><div class="ark-title">${appLang==='jp'?'オペレーター <span>選択</span>':'Operator <span>Select</span>'}</div></div>
+    ${listHtml}
+    <div class="ark-section">${t('newProfile')}</div>
+    <input id="pname" placeholder="${appLang==='jp'?'オペレーター名':'OPERATOR DESIGNATION'}" type="text">
+    <input type="file" id="csvfile" accept=".csv,.txt" style="display:none;">
+    <button id="btn-choose-csv">📂 &nbsp;${appLang==='jp'?'CSVファイルを選択':'Choose CSV File'}</button>
+    <div id="csvFilename" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent-dim);padding:4px 0;letter-spacing:1px;">${appLang==='jp'?'// ファイル未選択 //':'// NO FILE SELECTED //'}</div>
+    <button id="btn-import-csv">⊕ &nbsp;${appLang==='jp'?'CSVからインポート':'Import from CSV'}</button>
+    <hr>
+    <textarea id="txtImport" placeholder="Kanji,Hiragana,Arti — one entry per line" style="height:110px;"></textarea>
+    <button id="btn-import-text">⊕ &nbsp;${appLang==='jp'?'テキストからインポート':'Import from Text'}</button>
+    <hr>
+    <button id="btn-delete-profile" style="border-color:rgba(201,64,64,0.4);color:var(--text-dim);">✕ &nbsp;${appLang==='jp'?'オペレーターを削除':'Remove Operator'}</button>
+  </div>`;
+
+  // Wire up events after render (avoids all quoting issues & PWA restrictions)
+  document.getElementById("btn-back-profile").addEventListener("click", renderMenu);
+  document.getElementById("btn-import-csv").addEventListener("click", createProfileCSV);
+  document.getElementById("btn-import-text").addEventListener("click", createProfileText);
+  document.getElementById("btn-delete-profile").addEventListener("click", deleteProfileMenu);
+
+  // File input — direct user-gesture click forwarding (works in PWA)
+  let csvInput=document.getElementById("csvfile");
+  csvInput.addEventListener("change", handleCsvFileSelected);
+  document.getElementById("btn-choose-csv").addEventListener("click", function(){
+    csvInput.value="";
+    csvInput.click();
+  });
+
+  // Profile select buttons
+  profileNames.forEach((name,i)=>{
+    let btn=document.getElementById("prof-btn-"+i);
+    if(btn) btn.addEventListener("click", function(){ selectProfile(name); });
+  });
+}
+
+function makeWordObj(kanji,hira,arti){return{kanji:kanji.trim(),hira:hira.trim(),arti:arti.trim(),correct:0,wrong:0,mastered:false,interval:1,nextReview:Date.now()};}
+function handleCsvFileSelected(){
+  let f=document.getElementById("csvfile").files[0];
+  let el=document.getElementById("csvFilename");
+  if(el&&f)el.textContent="// "+f.name+" //";
+}
+function createProfileCSV(){
+  let name=document.getElementById("pname").value.trim(),file=document.getElementById("csvfile").files[0];
+  if(!name||!file)return alert("Fill operator name & choose a CSV file");
+  let r=new FileReader();
+  r.onload=e=>{let data=[];e.target.result.split("\n").forEach(l=>{let [k,h,a]=l.split(",");if(k&&h&&a)data.push(makeWordObj(k,h,a));});
+    if(!data.length)return alert("No valid data found in CSV!");
+    profiles[name]={words:data,xp:0};saveAll();renderProfile();};
+  r.readAsText(file);
+}
+function createProfileText(){
+  let name=document.getElementById("pname").value.trim(),text=document.getElementById("txtImport").value.trim();
+  if(!name||!text)return alert("Fill name & text");
+  let data=[];text.split("\n").forEach(l=>{let [k,h,a]=l.split(",");if(k){if(a){data.push(makeWordObj(k,h||'',a));}else if(h){data.push(makeWordObj(k,'',h));}}});
+  if(!data.length)return alert("Invalid text!");
+  profiles[name]={words:data,xp:0};saveAll();renderProfile();
+}
+function deleteProfileMenu(){
+  if(!Object.keys(profiles).length)return alert("No profiles yet!");
+  let names=Object.keys(profiles);
+  let listHtml=names.map((n,i)=>`<button id="del-prof-${i}" data-name="${n.replace(/"/g,'&quot;')}">${n}</button>`).join('');
+  app.innerHTML=`<div class="container"><div class="ark-header"><button id="btn-back-del" class="back">${t('back')}</button><div class="ark-title">${appLang==='jp'?'オペレーター <span>削除</span>':'Remove <span>Operator</span>'}</div></div><div class="ark-section">${appLang==='jp'?'削除するオペレーターを選択':'SELECT TO REMOVE'}</div>${listHtml}<button id="btn-cancel-del" style="border-color:var(--border);color:var(--text-dim);justify-content:center;margin-top:10px;">✕ ${appLang==='jp'?'キャンセル':'CANCEL'}</button></div>`;
+  document.getElementById("btn-back-del").addEventListener("click", renderProfile);
+  document.getElementById("btn-cancel-del").addEventListener("click", renderProfile);
+  names.forEach((n,i)=>{
+    let btn=document.getElementById("del-prof-"+i);
+    if(btn) btn.addEventListener("click", ()=>deleteProfile(n));
+  });
+}
+function deleteProfile(name){if(confirm(`Remove "${name}"?`)){delete profiles[name];saveAll();}renderProfile();}
+function selectProfile(name){
+  let p=profiles[name];
+  if(!p||typeof p!=='object'){alert("Operator data is missing or corrupt. Please re-import.");renderProfile();return;}
+  if(!Array.isArray(p.words)) p.words=[];
+  currentProfile=name;words=[...p.words];renderGroup();
+}
+
+/* ── GROUP ── */
+function renderGroup(){
+  isCustomMode=false;
+  let gModeBtnStyle=globalMode
+    ? "border-color:var(--accent);color:var(--accent);background:rgba(232,168,56,0.1);"
+    : "border-color:var(--border);color:var(--text-dim);";
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderProfile">${t('back')}</button><div class="ark-title">${appLang==='jp'?'ミッション <span>選択</span>':'Mission <span>Select</span>'}</div></div>
+    ${renderXpBar()}
+    <div class="ark-section">${appLang==='jp'?'モード':'MODE'}</div>
+    <div style="display:flex;gap:8px;margin-bottom:4px;">
+      <button id="btn-jp-mode" style="flex:1;justify-content:center;padding:10px;${!globalMode?'border-color:var(--accent);color:var(--accent);background:rgba(232,168,56,0.1);':'border-color:var(--border);color:var(--text-dim);'}">🇯🇵 ${appLang==='jp'?'日本語モード':'JAPANESE MODE'}<br><span style="font-size:9px;letter-spacing:1px;opacity:0.7;">${appLang==='jp'?'漢字 / ひらがな / 意味':'Kanji / Hiragana / Arti'}</span></button>
+      <button id="btn-global-mode" style="flex:1;justify-content:center;padding:10px;${globalMode?'border-color:var(--blue);color:var(--blue);background:rgba(58,114,176,0.1);':'border-color:var(--border);color:var(--text-dim);'}">🌐 ${appLang==='jp'?'グローバルモード':'GLOBAL MODE'}<br><span style="font-size:9px;letter-spacing:1px;opacity:0.7;">${appLang==='jp'?'漢字 / 意味のみ':'Kanji / Arti only'}</span></button>
+    </div>
+    <div class="ark-section">${appLang==='jp'?'出題数':'DEPLOYMENT SIZE'}</div>
+    <button data-action="chooseStep:25">⬡ &nbsp;${appLang==='jp'?'グループA — 25問':'Squad Alpha — 25 Units'}</button>
+    <button data-action="chooseStep:50">⬡ &nbsp;${appLang==='jp'?'グループB — 50問':'Squad Beta — 50 Units'}</button>
+    <button data-action="startAll">⬛ &nbsp;${appLang==='jp'?'全問出題 — ALL':'Full Deployment — ALL'}</button>
+    <button data-action="renderCustomAmount" style="border-color:var(--accent-dim);color:var(--accent);">◈ &nbsp;${t('customAmt')}</button>
+  </div>`;
+
+  document.getElementById("btn-jp-mode").addEventListener("click",()=>{globalMode=false;saveAll();renderGroup();});
+  document.getElementById("btn-global-mode").addEventListener("click",()=>{globalMode=true;saveAll();renderGroup();});
+}
+
+function renderCustomAmount(){
+  isCustomMode=false;let max=words.length;_customAmt=Math.min(10,max);
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderGroup">BACK</button><div class="ark-title">Custom <span>Count</span></div></div>
+    <div class="ark-section">SET DEPLOYMENT COUNT</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-top:3px solid var(--accent);padding:24px 20px;clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,0 100%);margin-bottom:16px;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:12px;">UNIT COUNT (MAX: ${max})</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button data-action="stepAmt:-10" style="width:52px;min-width:52px;justify-content:center;padding:10px 6px;font-size:13px;">−10</button>
+        <button data-action="stepAmt:-1"  style="width:44px;min-width:44px;justify-content:center;padding:10px 6px;font-size:13px;">−1</button>
+        <div id="amtDisplay" style="flex:1;text-align:center;font-family:'Rajdhani',sans-serif;font-size:52px;font-weight:700;color:var(--accent);text-shadow:0 0 20px rgba(232,168,56,0.4);line-height:1;">${_customAmt}</div>
+        <button data-action="stepAmt:1"   style="width:44px;min-width:44px;justify-content:center;padding:10px 6px;font-size:13px;">+1</button>
+        <button data-action="stepAmt:10"  style="width:52px;min-width:52px;justify-content:center;padding:10px 6px;font-size:13px;">+10</button>
+      </div>
+      <input id="amtSlider" type="range" min="1" max="${max}" value="${_customAmt}">
+    </div>
+    <button data-action="startCustomAmount" style="justify-content:center;font-size:16px;">⬛ &nbsp;DEPLOY</button>
+  </div>`;
+  document.getElementById("amtSlider").addEventListener("input",function(){syncSlider(this.value);});
+}
+function stepAmt(d){_customAmt=Math.max(1,Math.min(words.length,_customAmt+d));document.getElementById("amtDisplay").textContent=_customAmt;document.getElementById("amtSlider").value=_customAmt;}
+function syncSlider(v){_customAmt=parseInt(v);document.getElementById("amtDisplay").textContent=_customAmt;}
+function startCustomAmount(){currentStepAmount=_customAmt;isCustomMode=true;customPool=[...words];sessionWords=shuffle([...words]).slice(0,_customAmt);renderMode();}
+
+function chooseStep(size){
+  stepSize=size;let total=words.length,buttons="";
+  for(let start=0;start<total;start+=size){
+    let end=Math.min(start+size,total),key=currentProfile+"-"+start+"-"+end;
+    let played=playedGroups[key]?"played":"",pct=getBlockProgress(start,end),rank=getRankStyle(pct);
+    buttons+=`<button class="${played}" data-action="selectBlock:${start}:${end}" style="position:relative;overflow:hidden;box-shadow:${rank.glow};flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px;">${pct===100?"<div style='font-size:9px;letter-spacing:2px;color:#c060e8;font-weight:700;'>✦ MASTERED</div>":""}<div style="font-size:14px;letter-spacing:1px;">${start+1}–${end}${rank.emoji}</div><div style="width:100%;height:2px;background:var(--border);overflow:hidden;"><div style="height:100%;width:${pct}%;background:${rank.color};box-shadow:0 0 4px ${rank.color};"></div></div><div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:${rank.color};letter-spacing:1px;">${pct}% CLEARED</div></button>`;
+  }
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderGroup">BACK</button><div class="ark-title">Block <span>Select</span></div></div>
+    <div class="ark-section">COMBAT ZONES — UNIT SIZE: ${size}</div>
+    <div class="block-grid">${buttons}</div>
+    <button data-action="renderCustomBlock" style="margin-top:10px;border-color:var(--accent-dim);color:var(--accent);">◈ &nbsp;Custom Formation</button>
+  </div>`;
+}
+
+function selectBlock(start,end){
+  isCustomMode=false;currentBlockStart=start;currentBlockEnd=end;
+  let pool=words.slice(start,end);
+  if(!pool.length){alert(appLang==='jp'?'このブロックに単語がありません。':'No words in this block.');renderGroup();return;}
+  sessionWords=shuffle([...pool]);
+  currentStepAmount=sessionWords.length;
+  playedGroups[currentProfile+"-"+start+"-"+end]=true;saveAll();renderMode();
+}
+function renderCustomBlock(){
+  let total=words.length,size=stepSize,checkboxes="";
+  for(let s=0;s<total;s+=size){let e=Math.min(s+size,total);checkboxes+=`<label style="display:block;margin:8px 0;"><input type="checkbox" value="${s}-${e}"> ${s+1}–${e}</label>`;}
+  app.innerHTML=`<div class="container"><div class="ark-header"><button class="back" data-action="chooseStepBack">BACK</button><div class="ark-title">Custom <span>Formation</span></div></div><div class="ark-section">SELECT ZONES</div>${checkboxes}<button data-action="startCustomBlock" style="justify-content:center;margin-top:12px;">⬛ DEPLOY FORMATION</button></div>`;
+}
+function startCustomBlock(){
+  let sel=document.querySelectorAll("input[type=checkbox]:checked");
+  if(!sel.length)return alert("Select at least 1 block");
+  isCustomMode=true;customPool=[];
+  sel.forEach(cb=>{let[s,e]=cb.value.split("-").map(Number);customPool.push(...words.slice(s,e));});
+  sessionWords=shuffle([...customPool]);
+  currentStepAmount=sessionWords.length;renderMode();
+}
+function startAll(){currentStepAmount=words.length;sessionWords=shuffle([...words]);renderMode();}
+
+/* ── MODE / TYPE ── */
+function renderMode(){
+  let isJP=appLang==='jp';
+  let maxWords=sessionWords.length||100;
+  let limitDisplay=sessionWordLimit>0?sessionWordLimit:appLang==='jp'?'制限なし':'No limit';
+
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderGroup">${t('back')}</button><div class="ark-title">${isJP?'ゲーム <span>設定</span>':'Combat <span>Config</span>'}</div></div>
+
+    <div class="ark-section">${isJP?'プレイモード':'ENGAGEMENT MODE'}</div>
+    <button data-action="selectMode:choice">◈ &nbsp;${isJP?'四択クイズ':'Multi-Choice Protocol'}</button>
+    <button data-action="selectMode:typing">✎ &nbsp;${isJP?'手動入力':'Manual Input Protocol'}</button>
+    <button data-action="renderCurrentStepKotoba">▣ &nbsp;${isJP?'単語リスト確認':'Intelligence Briefing'}</button>
+
+    <div class="ark-section">${isJP?'カスタム設定':'CUSTOM SELECTION'}</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-top:2px solid var(--accent-dim);padding:16px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);margin-bottom:8px;">
+
+      <div style="margin-bottom:16px;">
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--text-dim);margin-bottom:10px;">${isJP?'選択肢の数（四択クイズ用）':'ANSWER CHOICES (Multi-Choice only)'}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="choice-minus" style="width:40px;min-width:40px;padding:8px 0;justify-content:center;font-size:16px;">−</button>
+          <div style="flex:1;text-align:center;">
+            <div id="choice-display" style="font-family:'Rajdhani',sans-serif;font-size:40px;font-weight:700;color:var(--accent);line-height:1;text-shadow:0 0 16px rgba(232,168,56,0.35);">${choiceCount}</div>
+            <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:2px;margin-top:2px;">${isJP?'選択肢':'CHOICES'}</div>
+          </div>
+          <button id="choice-plus" style="width:40px;min-width:40px;padding:8px 0;justify-content:center;font-size:16px;">+</button>
+        </div>
+        <input id="choice-slider" type="range" min="4" max="8" value="${choiceCount}" style="margin-top:10px;">
+      </div>
+
+      <hr style="border-color:var(--border);margin:0 0 16px;">
+
+      <div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--text-dim);margin-bottom:10px;">${isJP?'1セッションの出題数':'WORDS PER SESSION'} <span style="color:var(--accent);">(${isJP?'最大':'max'}: ${maxWords})</span></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="limit-minus" style="width:40px;min-width:40px;padding:8px 0;justify-content:center;font-size:16px;">−</button>
+          <div style="flex:1;text-align:center;">
+            <div id="limit-display" style="font-family:'Rajdhani',sans-serif;font-size:40px;font-weight:700;color:${sessionWordLimit>0?'var(--accent)':'var(--text-dim)'};line-height:1;text-shadow:0 0 16px rgba(232,168,56,0.2);">${limitDisplay}</div>
+            <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:2px;margin-top:2px;">${isJP?'単語':'WORDS'}</div>
+          </div>
+          <button id="limit-plus" style="width:40px;min-width:40px;padding:8px 0;justify-content:center;font-size:16px;">+</button>
+        </div>
+        <input id="limit-slider" type="range" min="0" max="${Math.min(maxWords,100)}" value="${Math.min(sessionWordLimit,100)}" style="margin-top:10px;">
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:6px;letter-spacing:1px;">${isJP?'0 = 制限なし（全単語）':'0 = No limit (all words in block)'}</div>
+      </div>
+    </div>
+
+    <div class="ark-section">${isJP?'パラメーター':'PARAMETERS'}</div>
+    <label style="font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--text-dim);display:block;margin-bottom:4px;">${isJP?'回答遅延（秒）':'RESPONSE DELAY (SEC)'}</label>
+    <input type="number" min="0.5" step="0.5" value="${answerDelay/1000}" id="inp-delay" style="max-width:160px;">
+    <hr>
+
+    <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--purple);margin:10px 0 6px;">🎲 ${isJP?'ランダム選択肢モード':'RANDOM OPTION ANSWER'}</div>
+    <label style="background:${randomOptions?'rgba(156,85,208,0.1)':'var(--bg-card)'};border:1px solid ${randomOptions?'rgba(156,85,208,0.5)':'var(--border)'};border-left:3px solid ${randomOptions?'var(--purple)':'var(--border)'};padding:12px 14px;cursor:pointer;transition:all 0.2s;display:flex;align-items:flex-start;gap:10px;" id="lbl-random">
+      <input type="checkbox" id="inp-random" ${randomOptions?'checked':''} style="margin-top:2px;">
+      <div>
+        <div style="font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;color:${randomOptions?'var(--purple)':'var(--text)'};">${isJP?'ランダム選択肢 🎲':'Random Distractors 🎲'}</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:4px;line-height:1.6;">${isJP?'グループ外の単語から選択肢を生成。正解時のXP +10%':'Wrong options pulled from outside the current group. Correct answers give +10% XP'}</div>
+      </div>
+    </label>
+    <hr>
+
+    <label><input type="checkbox" id="inp-hardcore" ${hardcoreMode?'checked':''}><span style="color:var(--red);font-family:'Rajdhani',sans-serif;font-size:15px;letter-spacing:2px;">${isJP?'ハードコアモード ☠':'HARDCORE MODE ☠'}</span></label>
+    <div style="margin-top:8px;">
+      <label style="font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--text-dim);display:block;margin-bottom:4px;">${isJP?'タイマー制限（0.1〜4秒）':'TIMER LIMIT (0.1–4 SEC)'}</label>
+      <input type="number" min="0.1" max="4" step="0.1" value="${hardcoreTimer/1000}" id="inp-hctimer" style="max-width:160px;">
+    </div>
+  </div>`;
+
+  // ── Choice count controls ──
+  const choiceDisp=document.getElementById("choice-display");
+  const choiceSlider=document.getElementById("choice-slider");
+  function updateChoiceDisplay(){
+    choiceDisp.textContent=choiceCount;
+    choiceSlider.value=choiceCount;
+    saveAll();
+  }
+  document.getElementById("choice-minus").addEventListener("click",()=>{if(choiceCount>4){choiceCount--;updateChoiceDisplay();}});
+  document.getElementById("choice-plus").addEventListener("click",()=>{if(choiceCount<8){choiceCount++;updateChoiceDisplay();}});
+  choiceSlider.addEventListener("input",function(){choiceCount=parseInt(this.value);updateChoiceDisplay();});
+
+  // ── Word limit controls ──
+  const limitDisp=document.getElementById("limit-display");
+  const limitSlider=document.getElementById("limit-slider");
+  function updateLimitDisplay(){
+    let isJP=appLang==='jp';
+    if(sessionWordLimit===0){
+      limitDisp.textContent=isJP?'制限なし':'No limit';
+      limitDisp.style.color='var(--text-dim)';
+    } else {
+      limitDisp.textContent=sessionWordLimit;
+      limitDisp.style.color='var(--accent)';
+    }
+    limitSlider.value=Math.min(sessionWordLimit,100);
+    saveAll();
+  }
+  document.getElementById("limit-minus").addEventListener("click",()=>{
+    if(sessionWordLimit===0) return;
+    if(sessionWordLimit<=10){sessionWordLimit=0;}
+    else{sessionWordLimit=Math.max(10,sessionWordLimit-10);}
+    updateLimitDisplay();
+  });
+  document.getElementById("limit-plus").addEventListener("click",()=>{
+    if(sessionWordLimit===0){sessionWordLimit=10;}
+    else{sessionWordLimit=Math.min(Math.min(maxWords,100),sessionWordLimit+10);}
+    updateLimitDisplay();
+  });
+  limitSlider.addEventListener("input",function(){
+    let v=parseInt(this.value);
+    sessionWordLimit=(v<10)?0:v;
+    updateLimitDisplay();
+  });
+
+  document.getElementById("inp-delay").addEventListener("change",function(){answerDelay=this.value*1000;});
+  document.getElementById("inp-hardcore").addEventListener("change",function(){hardcoreMode=this.checked;});
+  document.getElementById("inp-hctimer").addEventListener("change",function(){hardcoreTimer=this.value*1000;});
+  document.getElementById("inp-random").addEventListener("change",function(){
+    randomOptions=this.checked;
+    let lbl=document.getElementById("lbl-random");
+    let nameEl=lbl.querySelector('div > div:first-child');
+    let isJP=appLang==='jp';
+    lbl.style.background=randomOptions?'rgba(156,85,208,0.1)':'var(--bg-card)';
+    lbl.style.border=`1px solid ${randomOptions?'rgba(156,85,208,0.5)':'var(--border)'}`;
+    lbl.style.borderLeft=`3px solid ${randomOptions?'var(--purple)':'var(--border)'}`;
+    if(nameEl) nameEl.style.color=randomOptions?'var(--purple)':'var(--text)';
+    saveAll();
+  });
+}
+function selectMode(mode){gameMode=mode;renderType();}
+function renderType(){
+  let drills=globalMode
+    ? `<button data-action="startGame:kanji-arti">📖 &nbsp;${appLang==='jp'?'単語 → 意味':'Vocabulary → Meaning'}</button>
+       <button data-action="startGame:arti-kanji">💬 &nbsp;${appLang==='jp'?'意味 → 単語':'Meaning → Vocabulary'}</button>`
+    : `<button data-action="startGame:kanji-hira">漢 &nbsp;${appLang==='jp'?'漢字 → ひらがな':'Kanji → Hiragana'}</button>
+       <button data-action="startGame:kanji-arti">📖 &nbsp;${appLang==='jp'?'漢字 → 意味':'Kanji → Meaning'}</button>
+       <button data-action="startGame:hira-kanji">ひ &nbsp;${appLang==='jp'?'ひらがな → 漢字':'Hiragana → Kanji'}</button>
+       <button data-action="startGame:arti-kanji">💬 &nbsp;${appLang==='jp'?'意味 → 漢字':'Meaning → Kanji'}</button>`;
+  let modeTag=globalMode?`<div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--blue);letter-spacing:2px;margin-bottom:8px;">🌐 ${appLang==='jp'?'グローバルモード — ひらがな無効':'GLOBAL MODE — HIRAGANA DISABLED'}</div>`:'';
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderMode">${t('back')}</button><div class="ark-title">${appLang==='jp'?'トレーニング <span>タイプ</span>':'Training <span>Type</span>'}</div></div>
+    <div class="ark-section">${appLang==='jp'?'ドリルを選択':'SELECT DRILL'}</div>
+    ${modeTag}${drills}
+  </div>`;
+}
+function renderCurrentStepKotoba(){
+  let pool=isCustomMode?customPool:words.slice(currentBlockStart,currentBlockEnd);
+  let title=isCustomMode?"Custom Block":`${currentBlockStart+1}–${currentBlockEnd}`;
+  let list=pool.map(w=>`<li style="padding:6px 12px;border-left:2px solid var(--border);margin:3px 0;font-family:'Share Tech Mono',monospace;font-size:11px;background:var(--bg-card);list-style:none;"><b style="font-size:15px;font-family:'Rajdhani',sans-serif;">${w.kanji}</b> <span style="color:var(--accent);">${w.hira}</span> <span style="color:var(--text-dim);">— ${w.arti}</span></li>`).join('');
+  app.innerHTML=`<div class="container"><div class="ark-header"><button class="back" data-action="renderMode">BACK</button><div class="ark-title">Intel <span>Briefing</span></div></div><div class="ark-section">ZONE: ${title}</div><ul style="padding:0;">${list}</ul></div>`;
+}
+
+/* ── GAME ── */
+function startGame(type){
+  gameType=type;sessionCorrect=0;sessionWrong=0;combo=0;sessionComboMax=0;
+  if(!sessionWords.length){alert(appLang==='jp'?'単語がありません！':'No words available!');renderGroup();return;}
+  // Apply word limit if set
+  if(sessionWordLimit>0 && sessionWords.length>sessionWordLimit){
+    sessionWords=shuffle([...sessionWords]).slice(0,sessionWordLimit);
+  }
+  sessionTotal=sessionWords.length;
+  if(hardcoreMode){
+    lives=4;
+    // Scale hardcore timer down (harder = less time)
+    let hm=getHardnessMult();
+    hardcoreTimer=Math.max(500,Math.round((2000/hm)));
+  }
+  sessionXpStart=globalStats.xp;sessionLevelStart=globalStats.level;sessionXpGain=0;
+  nextWord();
+}
+function nextWord(){clearTimeout(timerInterval);if(!sessionWords||!sessionWords.length){renderSummary();return;}currentWord=sessionWords.pop();renderGame();}
+
+function checkTyping(correct){
+  if(isLocked)return;isLocked=true;
+  if(hardcoreMode)clearTimeout(timerInterval);
+  let input=document.getElementById("ans"),val=input.value.trim(),info=document.getElementById("info");
+  if(val===correct){input.style.borderColor="#3a9a5c";info.innerHTML=`<span style="color:#5ecf8a;">✅ CORRECT</span>`;}
+  else{input.style.borderColor="#c94040";info.innerHTML=`<span style="color:#e86060;">✗ WRONG — ANSWER: <b>${correct}</b></span>`;}
+  processAnswer(val===correct);
+}
+function checkChoice(sel,correct,options){
+  if(isLocked)return;isLocked=true;
+  document.querySelectorAll(".choiceBtn").forEach(b=>{
+    b.disabled=true;
+    let idx=parseInt(b.getAttribute("data-idx"));
+    let val=options[idx];
+    if(val===correct)b.classList.add("correct");
+    else if(val===sel&&sel!==correct)b.classList.add("wrong");
+  });
+  processAnswer(sel===correct);
+}
+function handleHardcoreFail(){
+  if(isLocked)return;isLocked=true;combo=0;sessionWrong++;lives--;
+  globalStats.xp=Math.max(0,globalStats.xp-15);
+  if(lives<=0){showGameOver();return;}
+  nextWord();
+}
+function showGameOver(){
+  app.innerHTML=`<div class="container" style="text-align:center;padding-top:60px;">
+    <div class="ark-header"><div class="ark-title">Game <span>Over</span></div></div>
+    <div style="font-size:60px;margin:20px 0;">☠</div>
+    <div style="font-family:'Rajdhani',sans-serif;font-size:28px;font-weight:700;color:var(--red);letter-spacing:4px;">OPERATOR DOWN</div>
+    <div class="ark-stat-row" style="margin-top:24px;">
+      <div class="ark-stat"><div class="ark-stat-label">Correct</div><div class="ark-stat-value" style="color:var(--green);">${sessionCorrect}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Max Combo</div><div class="ark-stat-value">${sessionComboMax}</div></div>
+    </div>
+    <button data-action="renderGroup" style="justify-content:center;margin-top:16px;">↩ RETURN TO BASE</button>
+  </div>`;
+}
+
+function processAnswer(isCorrect){
+  let prof=profiles[currentProfile];
+  if(!prof){renderMenu();return;}
+  let word=prof.words.find(w=>w.kanji===currentWord.kanji);
+  if(!word){word={kanji:currentWord.kanji,hira:currentWord.hira||'',arti:currentWord.arti||'',correct:0,wrong:0};prof.words.push(word);}
+  if(hardcoreMode)clearTimeout(timerInterval);
+  let xpBase=10,flags={};
+
+  if(isCorrect){
+    combo++;if(combo>sessionComboMax)sessionComboMax=combo;
+    let mult=comboMultiplier(combo);
+    let randomBonus=randomOptions?1.1:1.0;
+    let xpGained=Math.round(xpBase*mult*(hardcoreMode?1.5:1)*randomBonus);
+    word.correct++;sessionCorrect++;
+    prof.xp=(prof.xp||0)+xpGained;
+    globalStats.xp+=xpGained;sessionXpGain+=xpGained;
+    globalStats.totalCorrect=(globalStats.totalCorrect||0)+1;
+    flags._combo=sessionComboMax;
+    if(sessionWrong===0&&sessionCorrect>=10)flags._perfect=true;
+    updateDailyProgress("correct",1);
+    if(combo>(dailyProgress.combo||0)){updateDailyProgress("combo",combo-(dailyProgress.combo||0));}
+    if(sessionWrong===0)updateDailyProgress("noerror",1);
+  } else {
+    combo=0;sessionWrong++;word.wrong++;
+    if(hardcoreMode){
+      lives--;
+      globalStats.xp=Math.max(0,globalStats.xp-10);
+      prof.xp=Math.max(0,(prof.xp||0)-10);
+      if(lives<=0){updateSRS(word,false);globalStats.level=calcLevel(globalStats.xp);saveAll();showGameOver();return;}
+    }
+  }
+
+  updateSRS(word,isCorrect);
+  let oldLevel=globalStats.level;
+  globalStats.level=calcLevel(globalStats.xp);
+  saveAll();
+
+  let newAchs=checkAchievements(flags);
+  newAchs.forEach((a,i)=>setTimeout(()=>showAchievementToast(a),i*3300));
+
+  if(globalStats.level>oldLevel){
+    setTimeout(()=>showLevelUp(globalStats.level,()=>setTimeout(()=>nextWord(),200)),answerDelay);
+  } else {
+    setTimeout(()=>nextWord(),answerDelay);
+  }
+}
+
+function exitGame(){
+  if(hardcoreMode){globalStats.xp=Math.max(0,globalStats.xp-30);saveAll();}
+  renderType();
+}
+
+/* ── SUMMARY ── */
+function renderSummary(){
+  // ── Autosave session history ──
+  let accuracy=sessionTotal>0?Math.floor((sessionCorrect/sessionTotal)*100):0;
+  let grade=accuracy>=90?"S":accuracy>=75?"A":accuracy>=55?"B":accuracy>=35?"C":"D";
+  let histEntry={
+    ts:Date.now(),
+    profile:currentProfile,
+    gameType:gameType,
+    gameMode:gameMode,
+    correct:sessionCorrect,
+    total:sessionTotal,
+    wrong:sessionWrong,
+    combo:sessionComboMax,
+    xpGain:sessionXpGain,
+    grade:grade,
+    accuracy:accuracy,
+    hardcore:hardcoreMode,
+    isCustom:isCustomMode
+  };
+  sessionHistory.unshift(histEntry);
+  if(sessionHistory.length>200)sessionHistory=sessionHistory.slice(0,200);
+  globalStats.totalSessions=(globalStats.totalSessions||0)+1;
+  globalStats.level=calcLevel(globalStats.xp);saveAll();
+  updateDailyProgress("sessions",1);
+  let flags={_combo:sessionComboMax};
+  if(sessionWrong===0&&sessionCorrect>=10)flags._perfect=true;
+  if(hardcoreMode&&sessionCorrect===sessionTotal)flags._hardcoreWin=true;
+  let newAchs=checkAchievements(flags);
+  setTimeout(()=>newAchs.forEach((a,i)=>setTimeout(()=>showAchievementToast(a),i*3300)),800);
+
+  let gradeColor=grade==="S"?"#e8a838":grade==="A"?"#3a9a5c":grade==="B"?"#3a72b0":grade==="C"?"#c9a030":"#c94040";
+  let levelUpText=globalStats.level>sessionLevelStart?`<div style="color:var(--accent);font-family:'Rajdhani',sans-serif;font-size:18px;letter-spacing:3px;margin:10px 0;text-align:center;">⬡ LEVEL UP: ${sessionLevelStart} → ${globalStats.level}</div>`:"";
+
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><div class="ark-title">${appLang==='jp'?'ミッション <span>レポート</span>':'Mission <span>Report</span>'}</div></div>
+    <div style="text-align:center;padding:16px 0;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);">${t('grade')}</div>
+      <div style="font-family:'Rajdhani',sans-serif;font-size:90px;font-weight:700;color:${gradeColor};line-height:1;text-shadow:0 0 40px ${gradeColor}88;">${grade}</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text-dim);letter-spacing:2px;">${accuracy}% ${t('accuracy')}</div>
+    </div>
+    ${renderXpBar()}
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'正解':'Correct'}</div><div class="ark-stat-value" style="color:var(--green);">${sessionCorrect}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'合計':'Total'}</div><div class="ark-stat-value">${sessionTotal}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('xpGained')}</div><div class="ark-stat-value">+${sessionXpGain}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'最大コンボ':'Max Combo'}</div><div class="ark-stat-value" style="color:var(--accent2);">${sessionComboMax}</div></div>
+    </div>
+    ${levelUpText}
+    <button id="backBtn" disabled style="justify-content:center;margin-top:16px;">⬡ ${t('backMenu')}</button>
+  </div>`;
+  setTimeout(()=>document.getElementById("backBtn").disabled=false,500);
+  document.getElementById("backBtn").addEventListener("click",()=>renderGroup());
+  setTimeout(renderGroup,6000);
+}
+
+/* ── STATS ── */
+function renderStats(){
+  let cp=currentProfile&&profiles[currentProfile]?profiles[currentProfile]:null;
+  let pXP=cp?(cp.xp||0):0;
+  let pLv=calcLevel(pXP),totalWords=cp?(cp.words||[]).length:0;
+  let mastered=0,correct=0,wrong=0;
+  if(cp)(cp.words||[]).forEach(w=>{correct+=(w.correct||0);wrong+=(w.wrong||0);if((w.correct||0)>=5)mastered++;});
+  let mastPct=totalWords>0?Math.floor((mastered/totalWords)*100):0;
+  let unlocked=getAchievements().filter(a=>achievements[a.id]).length;
+  let pRank=getRankTitle(pLv);
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${appLang==='jp'?'戦闘 <span>記録</span>':'Combat <span>Records</span>'}</div></div>
+    ${renderXpBar()}
+    <div class="ark-section">${appLang==='jp'?'グローバルステータス':'GLOBAL STATS'}</div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'グローバルLV':'Global LV'}</div><div class="ark-stat-value">${globalStats.level}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('totalXp')}</div><div class="ark-stat-value">${globalStats.xp}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'実績':'Achievements'}</div><div class="ark-stat-value">${unlocked}/${getAchievements().length}</div></div>
+    </div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'合計正解':'Total Correct'}</div><div class="ark-stat-value" style="color:var(--green);">${globalStats.totalCorrect||0}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('sessions')}</div><div class="ark-stat-value">${globalStats.totalSessions||0}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('streak')}</div><div class="ark-stat-value">${globalStats.grindDays||0}d</div></div>
+    </div>
+    <div class="ark-section">${appLang==='jp'?'オペレーター: ':'OPERATOR: '}${currentProfile||'NONE'}</div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'オペLV':'Op. Level'}</div><div class="ark-stat-value" style="color:${pRank.color};">${pLv}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'ランク':'Rank'}</div><div class="ark-stat-value" style="font-size:11px;color:${pRank.color};">${pRank.title}</div></div>
+    </div>
+    <div class="ark-section">${appLang==='jp'?'語彙データ':'VOCABULARY INTEL'}</div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'総数':'Total'}</div><div class="ark-stat-value">${totalWords}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'正解数':'Correct'}</div><div class="ark-stat-value" style="color:var(--green);">${correct}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${appLang==='jp'?'不正解数':'Wrong'}</div><div class="ark-stat-value" style="color:var(--red);">${wrong}</div></div>
+    </div>
+    <div style="margin:12px 0 6px;"><div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--text-dim);margin-bottom:6px;">${appLang==='jp'?'習得率':'MASTERY'} — ${mastered}/${totalWords} (${mastPct}%)</div><div class="ark-progress"><div class="ark-progress-fill" style="width:${mastPct}%;"></div></div></div>
+    <button data-action="renderAchievements" style="margin-top:12px;border-color:var(--accent-dim);color:var(--accent);">🏆 ${t('achiev')}</button>
+  </div>`;
+}
+
+/* ── KOTOBA ── */
+function renderKotoba(){
+  if(!currentProfile){alert("Select a profile first!");return;}
+  let cp=profiles[currentProfile];
+  if(!cp||!Array.isArray(cp.words)){alert("Operator data missing. Please re-import.");return;}
+  let list=cp.words.map(w=>{let done=(w.correct||0)>=5;return `<li style="padding:8px 12px;border-left:2px solid ${done?'var(--green)':'var(--border)'};margin:3px 0;font-family:'Share Tech Mono',monospace;font-size:11px;background:var(--bg-card);color:${done?'var(--green)':'var(--text)'};list-style:none;">${done?'✓ ':'  '}<b style="font-size:15px;font-family:'Rajdhani',sans-serif;">${w.kanji}</b> <span style="color:var(--accent);">${w.hira}</span> <span style="color:var(--text-dim);">— ${w.arti}</span></li>`;}).join('');
+  app.innerHTML=`<div class="container"><div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${appLang==='jp'?'単語 <span>データベース</span>':'Vocab <span>Database</span>'}</div></div><div class="ark-section">${appLang==='jp'?'データファイル':'INTELLIGENCE FILE'} — ${cp.words.length} ${appLang==='jp'?'語':'ENTRIES'}</div><ul style="padding:0;">${list}</ul></div>`;
+}
+
+/* ── SHARE ── */
+function renderShare(){
+  if(!currentProfile)return alert("Select a profile first!");
+  let p=profiles[currentProfile];
+  if(!p||!Array.isArray(p.words)){alert("Operator data missing. Please re-import.");return;}
+  let mastered=p.words.filter(w=>(w.correct||0)>=5),learning=p.words.filter(w=>(w.correct||0)>0&&(w.correct||0)<5);
+  let pct=p.words.length>0?Math.floor((mastered.length/p.words.length)*100):0,rank=getRankTitle(globalStats.level);
+  let unlocked=getAchievements().filter(a=>achievements[a.id]).length;
+  let text=`📘 Kotoba Trainer Progress\n👤 Operator: ${currentProfile}\n⭐ Global Level: ${globalStats.level} (${rank.title})\n💠 Global XP: ${globalStats.xp}\n🔥 Streak: ${globalStats.grindDays} days\n🏆 Achievements: ${unlocked}/${getAchievements().length}\n\n📊 Mastered: ${mastered.length}/${p.words.length} (${pct}%)\n✅ ${mastered.map(w=>`${w.kanji}(${w.hira})`).join(', ')||'-'}\n📖 Learning: ${learning.map(w=>w.kanji).join(', ')||'-'}\n\n#KotobaTrainer #RhodesIsland`;
+
+  // Static info panels
+  let gRank=getRankTitle(globalStats.level);
+  let profLv=calcLevel(p.xp||0),profRank=getRankTitle(profLv);
+  let mastPct=p.words.length>0?Math.floor((mastered.length/p.words.length)*100):0;
+  let resetMult=1.0;let ra=RESET_ACHIEVEMENTS.filter(r=>resetCount>=r.resets);if(ra.length>0)resetMult=ra[ra.length-1].mult;
+
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${appLang==='jp'?'進捗 <span>送信</span>':'Transmit <span>Progress</span>'}</div></div>
+
+    <div class="ark-section">⬡ GLOBAL STATS (STATIC)</div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">Global LV</div><div class="ark-stat-value" style="color:${gRank.color};">${globalStats.level}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Global XP</div><div class="ark-stat-value">${globalStats.xp}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Streak</div><div class="ark-stat-value">${globalStats.grindDays}d</div></div>
+    </div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">Achievements</div><div class="ark-stat-value">${unlocked}/${getAchievements().length}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Resets</div><div class="ark-stat-value" style="color:var(--purple);">${resetCount}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Hardness</div><div class="ark-stat-value" style="color:var(--red);">${resetMult}×</div></div>
+    </div>
+
+    <div class="ark-section">👤 PROFILE: ${currentProfile}</div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">Op. LV</div><div class="ark-stat-value" style="color:${profRank.color};">${profLv}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Rank</div><div class="ark-stat-value" style="font-size:10px;color:${profRank.color};">${profRank.title}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Words</div><div class="ark-stat-value">${p.words.length}</div></div>
+    </div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">Mastered</div><div class="ark-stat-value" style="color:var(--green);">${mastered.length}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Learning</div><div class="ark-stat-value" style="color:var(--accent);">${learning.length}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">Mastery%</div><div class="ark-stat-value">${mastPct}%</div></div>
+    </div>
+
+    <div class="ark-section">ENCODED REPORT</div>
+    <textarea id="shareText" style="width:100%;height:180px;font-size:11px;">${text}</textarea>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+      <button id="btn-copy-share" style="justify-content:center;">⇪ &nbsp;COPY TRANSMISSION</button>
+      <button id="btn-export-savedata" style="justify-content:center;border-color:var(--blue);color:var(--blue);">💾 &nbsp;EXPORT SAVEDATA</button>
+    </div>
+    <button id="btn-export-progress" style="justify-content:center;border-color:var(--green);color:var(--green);margin-top:8px;">📤 &nbsp;EXPORT PROGRESS (TXT)</button>
+  </div>`;
+
+  document.getElementById("btn-copy-share").addEventListener("click",()=>navigator.clipboard.writeText(document.getElementById("shareText").value));
+
+  document.getElementById("btn-export-savedata").addEventListener("click",()=>{
+    let saveData={profiles,globalStats,playedGroups,achievements,dailyMissions,sessionHistory,resetCount};
+    let blob=new Blob([JSON.stringify(saveData,null,2)],{type:"application/json"});
+    let a=document.createElement("a");a.href=URL.createObjectURL(blob);
+    a.download=`kotoba_savedata_${new Date().toISOString().slice(0,10)}.json`;a.click();
+  });
+
+  document.getElementById("btn-export-progress").addEventListener("click",()=>{
+    let blob=new Blob([document.getElementById("shareText").value],{type:"text/plain"});
+    let a=document.createElement("a");a.href=URL.createObjectURL(blob);
+    a.download=`kotoba_progress_${currentProfile}_${new Date().toISOString().slice(0,10)}.txt`;a.click();
+  });
+}
+
+/* ── UTIL ── */
+function updateSRS(word,isCorrect){
+  if(!word.ease)word.ease=2.5;if(!word.interval)word.interval=1;
+  if(isCorrect){word.ease=Math.min(3,word.ease+0.1);word.interval=Math.round(word.interval*word.ease);}
+  else{word.ease=Math.max(1.3,word.ease-0.2);word.interval=1;}
+  word.nextReview=Date.now()+(word.interval*24*60*60*1000);
+}
+function getBlockProgress(start,end){
+  let bw=words.slice(start,end);if(!bw.length)return 0;
+  let cp=currentProfile&&profiles[currentProfile]?profiles[currentProfile]:null;
+  if(!cp||!Array.isArray(cp.words))return 0;
+  let m=bw.filter(w=>{let o=cp.words.find(p=>p.kanji===w.kanji);return o&&(o.correct||0)>=5;}).length;
+  return Math.floor((m/bw.length)*100);
+}
+function getRankStyle(percent){
+  if(percent===100)return{color:"#9c27b0",emoji:" 👑",glow:"0 0 12px rgba(156,39,176,0.6)"};
+  if(percent>=70)return{color:"#2196F3",emoji:"",glow:"none"};
+  if(percent>=30)return{color:"#FFC107",emoji:"",glow:"none"};
+  return{color:"#e74c3c",emoji:"",glow:"none"};
+}
+function getOptions(correct){
+  // When randomOptions is ON, pull distractors from the full vocab (all words)
+  // When OFF, only pull from the current group/block
+  let groupPool=isCustomMode?customPool:words.slice(currentBlockStart,currentBlockEnd);
+  let distractorPool=randomOptions?words:groupPool;
+  // If distractor pool is too small, fall back to full words
+  if(distractorPool.length<choiceCount) distractorPool=words;
+  let arr=[...new Set(
+    distractorPool.map(w=>{if(gameType==="kanji-hira")return w.hira;if(gameType==="kanji-arti")return w.arti;return w.kanji;})
+  )].filter(x=>x&&x!==correct);
+  return shuffle(arr).slice(0,choiceCount-1);
+}
+
+function renderGame(){
+  isLocked=false;
+  let q="",c="";
+  if(gameType==="kanji-hira"){q=currentWord.kanji;c=currentWord.hira;}
+  if(gameType==="kanji-arti"){q=currentWord.kanji;c=currentWord.arti;}
+  if(gameType==="hira-kanji"){q=currentWord.hira; c=currentWord.kanji;}
+  if(gameType==="arti-kanji"){q=currentWord.arti; c=currentWord.kanji;}
+
+  // In global mode, hide hiragana reveal button
+  let furiganaButton="",furiganaDisplay="";
+  if(gameType!=="kanji-hira" && !globalMode){
+    furiganaButton=`<button id="btn-reveal-hira" style="width:auto;padding:6px 16px;font-size:11px;justify-content:center;border-color:var(--accent-dim);color:var(--accent-dim);">◈ ${appLang==='jp'?'ひらがなを表示':'REVEAL HIRAGANA'}</button>`;
+    furiganaDisplay=`<div id="furigana" style="display:none;">${currentWord.hira}</div>`;
+  }
+
+  let mult=comboMultiplier(combo);
+  let comboHtml=combo>=3?`<div class="combo-display">${appLang==='jp'?'コンボ':'COMBO'} ×${combo} <span style="font-size:14px;color:var(--text-dim);">[${mult}×XP]</span></div>`:"";
+
+  let inputHtml="";
+  if(gameMode==="typing"){
+    inputHtml=`<input id="ans" type="text" style="width:100%;font-size:20px;text-align:center;letter-spacing:3px;" placeholder="${appLang==='jp'?'// 回答を入力 //':'// INPUT ANSWER //'}"><button id="btnTyping" style="margin-top:6px;justify-content:center;">⬛ ${appLang==='jp'?'確認':'CONFIRM'}</button><div id="info"></div>`;
+  }
+  let choiceButtons="";
+  let _choiceOptions=[];
+  if(gameMode==="choice"){
+    _choiceOptions=shuffle([c,...getOptions(c)]);
+    let cols=_choiceOptions.length>4?2:1;
+    let gridStyle=cols===2?`display:grid;grid-template-columns:1fr 1fr;gap:6px;`:``;
+    let btns=_choiceOptions.map((opt,i)=>`<button class="choiceBtn" data-idx="${i}" style="text-align:center;justify-content:center;font-size:${opt.length>12?'12px':'14px'};padding:11px 8px;">${opt}</button>`).join('');
+    choiceButtons=`<div style="${gridStyle}margin-top:4px;">${btns}</div>`;
+  }
+  let timerBar="";
+  if(hardcoreMode){
+    timerBar=`<div class="ark-progress"><div id="timerFill" class="ark-progress-fill" style="width:100%;transition:width linear ${hardcoreTimer}ms;background:linear-gradient(90deg,#c94040,#e87070);"></div></div>`;
+  }
+  let progress=sessionTotal>0?Math.floor(((sessionTotal-sessionWords.length)/sessionTotal)*100):0;
+  let hmLabel=getHardnessMult()>1?`<span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--purple);margin-left:6px;">×${getHardnessMult()} HARD</span>`:'';
+  let randLabel=randomOptions?`<span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--purple);margin-left:6px;">🎲 +10%</span>`:'';
+
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="exitGame">${appLang==='jp'?'退出':'EXIT'}</button><div class="ark-title">Field <span>Op</span></div><div class="ark-badge" style="margin-left:auto;">${sessionWords.length} ${appLang==='jp'?'残り':'LEFT'}</div>${hmLabel}${randLabel}</div>
+    <div class="ark-progress"><div class="ark-progress-fill" style="width:${progress}%;"></div></div>
+    ${hardcoreMode?`<div class="ark-lives">❤ ${appLang==='jp'?'ライフ':'LIVES'}: ${lives}</div>`:""}
+    ${comboHtml}
+    <div class="card">${q}</div>
+    ${furiganaButton}${timerBar}${furiganaDisplay}
+    <div>${inputHtml}${choiceButtons}</div>
+  </div>`;
+
+  if(hardcoreMode){
+    setTimeout(()=>{let f=document.getElementById("timerFill");if(f)f.style.width="0%";},50);
+    timerInterval=setTimeout(handleHardcoreFail,hardcoreTimer);
+  }
+  let revealBtn=document.getElementById("btn-reveal-hira");
+  if(revealBtn) revealBtn.addEventListener("click",()=>{let fg=document.getElementById("furigana");if(fg)fg.style.display="block";});
+  if(gameMode==="choice"){
+    document.querySelectorAll(".choiceBtn").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        let idx=parseInt(btn.getAttribute("data-idx"));
+        let sel=_choiceOptions[idx];
+        checkChoice(sel,c,_choiceOptions);
+      });
+    });
+  }
+  if(gameMode==="typing"){
+    document.getElementById("btnTyping").addEventListener("click",()=>checkTyping(c));
+    document.getElementById("ans").addEventListener("keydown",e=>{if(e.key==="Enter")checkTyping(c);});
+  }
+}
+
+
+function renderHistory(){
+  let hist=sessionHistory;
+  if(!hist.length){
+    app.innerHTML=`<div class="container"><div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${appLang==='jp'?'セッション <span>履歴</span>':'Session <span>History</span>'}</div></div><div class="ark-section">${appLang==='jp'?'データなし':'NO DATA'}</div><div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text-dim);padding:20px 0;text-align:center;">${appLang==='jp'?'// セッションが記録されていません //':'// NO SESSIONS RECORDED YET //'}</div></div>`;
+    return;
+  }
+  let typeLabels={"kanji-hira":"K→H","kanji-arti":"K→M","hira-kanji":"H→K","arti-kanji":"M→K"};
+  let gradeColor=g=>g==="S"?"#e8a838":g==="A"?"#3a9a5c":g==="B"?"#3a72b0":g==="C"?"#c9a030":"#c94040";
+  let cards=hist.slice(0,50).map((h,i)=>{
+    let d=new Date(h.ts);
+    let dateStr=d.toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'})+" "+d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+    let mode=h.gameMode==="choice"?"MC":"TYPE";
+    let type=typeLabels[h.gameType]||h.gameType||"?";
+    let gc=gradeColor(h.grade||"D");
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid ${gc};padding:10px 14px;margin:5px 0;display:flex;align-items:center;gap:12px;clip-path:polygon(8px 0%,100% 0%,100% calc(100% - 8px),calc(100% - 8px) 100%,0% 100%,0% 8px);">
+      <div style="font-family:'Rajdhani',sans-serif;font-size:28px;font-weight:700;color:${gc};min-width:28px;text-align:center;text-shadow:0 0 12px ${gc}88;">${h.grade||"?"}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--text-bright);letter-spacing:1px;">${h.profile||'?'} <span style="font-size:10px;color:var(--accent);font-family:'Share Tech Mono',monospace;">${type} · ${mode}${h.hardcore?" · HC":""}</span></div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:2px;">${dateStr}</div>
+        <div style="display:flex;gap:10px;margin-top:4px;">
+          <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:#3a9a5c;">✓ ${h.correct}</span>
+          <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:#c94040;">✗ ${h.wrong||0}</span>
+          <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent);">+${h.xpGain||0}XP</span>
+          <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent2);">×${h.combo||0}</span>
+        </div>
+      </div>
+      <div style="text-align:right;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);">${h.accuracy||0}%</div>
+    </div>`;
+  }).join('');
+  let totalSess=hist.length,avgAcc=hist.length?Math.floor(hist.reduce((s,h)=>s+(h.accuracy||0),0)/hist.length):0;
+  let bestGrade=["S","A","B","C","D"].find(g=>hist.some(h=>h.grade===g))||"—";
+  let totalXpEarned=hist.reduce((s,h)=>s+(h.xpGain||0),0);
+  app.innerHTML=`<div class="container">
+    <div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${appLang==='jp'?'セッション <span>履歴</span>':'Session <span>History</span>'}</div><div class="ark-badge" style="margin-left:auto;">${totalSess} ${t('runs')}</div></div>
+    <div class="ark-stat-row">
+      <div class="ark-stat"><div class="ark-stat-label">${t('sessions')}</div><div class="ark-stat-value">${totalSess}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('avgAcc')}</div><div class="ark-stat-value">${avgAcc}%</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('best')}</div><div class="ark-stat-value" style="color:${gradeColor(bestGrade)};">${bestGrade}</div></div>
+      <div class="ark-stat"><div class="ark-stat-label">${t('totalXp')}</div><div class="ark-stat-value">+${totalXpEarned}</div></div>
+    </div>
+    <div class="ark-section">${t('recentOps')} ${Math.min(50,hist.length)}</div>
+    ${cards}
+    ${hist.length>0?`<button data-action="clearHistory" style="margin-top:12px;border-color:rgba(201,64,64,0.4);color:var(--text-dim);justify-content:center;">${t('clearHist')}</button>`:''}
+  </div>`;
+}
+
+/* ── BOOT ── */
+updateDailyStreak();
+ensureDailyMissions();
+
+/* ── GLOBAL ACTION DISPATCHER ──
+   All buttons use data-action="fnName" or data-action="fnName:arg1:arg2"
+   This one listener handles everything — works in PWA, no CSP issues ── */
+app.addEventListener("click", function(e){
+  let btn=e.target.closest("[data-action]");
+  if(!btn) return;
+  let parts=btn.getAttribute("data-action").split(":");
+  let action=parts[0], args=parts.slice(1);
+  switch(action){
+    case "renderMenu":           renderMenu(); break;
+    case "renderProfile":        renderProfile(); break;
+    case "renderStats":          renderStats(); break;
+    case "renderAchievements":   renderAchievements(); break;
+    case "renderDailyMissions":  renderDailyMissions(); break;
+    case "renderKotoba":         renderKotoba(); break;
+    case "renderHistory":        renderHistory(); break;
+    case "renderShare":          renderShare(); break;
+    case "renderGroup":          renderGroup(); break;
+    case "renderMode":           renderMode(); break;
+    case "renderCustomAmount":   renderCustomAmount(); break;
+    case "renderCustomBlock":    renderCustomBlock(); break;
+    case "renderCurrentStepKotoba": renderCurrentStepKotoba(); break;
+    case "startAll":             startAll(); break;
+    case "startCustomAmount":    startCustomAmount(); break;
+    case "startCustomBlock":     startCustomBlock(); break;
+    case "exitGame":             exitGame(); break;
+    case "deleteProfileMenu":    deleteProfileMenu(); break;
+    case "revealFurigana":       {let fg=document.getElementById("furigana");if(fg)fg.style.display="block";} break;
+    case "chooseStep":           chooseStep(parseInt(args[0])); break;
+    case "chooseStepBack":       chooseStep(stepSize); break;
+    case "selectMode":           selectMode(args[0]); break;
+    case "startGame":            startGame(args[0]); break;
+    case "stepAmt":              stepAmt(parseInt(args[0])); break;
+    case "selectBlock":          selectBlock(parseInt(args[0]),parseInt(args[1])); break;
+    case "clearHistory":
+      if(confirm(t('confirmClearHist'))){sessionHistory=[];saveAll();renderHistory();}
+      break;
+  }
+});
+
+renderMenu();
+
+/* ── CLEANUP: Kill all service workers immediately ── */
+if('serviceWorker' in navigator){
+  // If a SW is currently controlling this page, unregister and hard reload once
+  if(navigator.serviceWorker.controller){
+    navigator.serviceWorker.getRegistrations().then(regs=>{
+      Promise.all(regs.map(r=>r.unregister())).then(()=>{
+        // Only reload if we haven't already done so (prevent reload loop)
+        if(!sessionStorage.getItem('sw_cleared')){
+          sessionStorage.setItem('sw_cleared','1');
+          location.reload();
+        }
+      });
+    }).catch(()=>{});
+  } else {
+    // No active SW controller - just clean up any registered ones silently
+    navigator.serviceWorker.getRegistrations().then(regs=>{
+      regs.forEach(r=>r.unregister());
+    }).catch(()=>{});
+  }
+}
+
+/* ── Load fonts non-blocking after app is rendered ── */
+(function(){
+  try{
+    let link=document.createElement('link');
+    link.rel='stylesheet';
+    link.href='https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap';
+    document.head.appendChild(link);
+  }catch(e){}
+})();
+</script>
+</body>
+</html>
