@@ -335,6 +335,9 @@ if(!shopData.specialEffectsOn){
 if(!shopData.diamondUnlocked)shopData.diamondUnlocked=false;
 if(!shopData.ownedEmblems)shopData.ownedEmblems=[];
 if(!shopData.activeEmblems)shopData.activeEmblems={}; // id → true/false toggle
+
+/* ── UPGRADE STATE ── */
+if(!shopData.upgrades)shopData.upgrades={coin:0,xp:0,crit:0,critDmg:0};
 /* ── WEAPON STATE ── */
 if(!shopData.ownedWeapons)shopData.ownedWeapons=[];
 if(!shopData.equippedWeapon)shopData.equippedWeapon=null;
@@ -342,6 +345,7 @@ if(!shopData.crystalSlots)shopData.crystalSlots=[];
 if(shopData.weaponFxOpacity===undefined)shopData.weaponFxOpacity=1.0; // 0.1 – 1.0
 if(shopData.weaponFxSize===undefined)shopData.weaponFxSize=1.0; // 0.5 – 2.0
 if(shopData.rebellionJiggle===undefined)shopData.rebellionJiggle=true; // screen shake on rebellion
+if(!shopData.weaponFxEnabled)shopData.weaponFxEnabled={}; // per-weapon FX on/off (default all on)
 let advData=lsGet("advData",{
   ownedChars:["hiro"],
   activeChar:"hiro",
@@ -627,38 +631,50 @@ window.addEventListener("beforeunload",saveAllNow);
 
 /* ── ENCODE / DECODE (Kotoba-specific, not human-readable) ── */
 // XOR cipher with a rotating key seeded to this app's identity
-// Unicode-safe: uses TextEncoder/TextDecoder to handle Japanese & all Unicode correctly
 const _ENC_KEY="KotobaRhodesIslandProtocol_v3";
 function _encodeData(obj){
   try{
-    // Use TextEncoder to get proper UTF-8 bytes (handles Japanese/Unicode safely)
     let raw=JSON.stringify(obj);
-    let utf8=new TextEncoder().encode(raw);
+    let out=[];
     let k=[..._ENC_KEY].map(c=>c.charCodeAt(0));
-    let out=new Uint8Array(utf8.length);
-    for(let i=0;i<utf8.length;i++){out[i]=utf8[i]^k[i%k.length]^((i*7+13)&0xFF);}
-    // Convert to base64 safely (no btoa Unicode issue)
-    let binary='';
-    for(let i=0;i<out.length;i++){binary+=String.fromCharCode(out[i]);}
-    return btoa(binary);
+    for(let i=0;i<raw.length;i++){out.push(raw.charCodeAt(i)^k[i%k.length]^((i*7+13)&0xFF));}
+    // base64 of the xor'd bytes
+    return btoa(String.fromCharCode(...out));
   }catch(e){return null;}
 }
 function _decodeData(encoded){
   try{
-    // Decode base64 to bytes
-    let binary=atob(encoded.trim());
-    let bytes=new Uint8Array(binary.length);
-    for(let i=0;i<binary.length;i++){bytes[i]=binary.charCodeAt(i);}
+    let bytes=[...atob(encoded)].map(c=>c.charCodeAt(0));
     let k=[..._ENC_KEY].map(c=>c.charCodeAt(0));
-    let out=new Uint8Array(bytes.length);
-    for(let i=0;i<bytes.length;i++){out[i]=bytes[i]^k[i%k.length]^((i*7+13)&0xFF);}
-    // Use TextDecoder to restore original UTF-8 string (handles Japanese/Unicode)
-    let raw=new TextDecoder().decode(out);
-    return JSON.parse(raw);
+    let out=[];
+    for(let i=0;i<bytes.length;i++){out.push(bytes[i]^k[i%k.length]^((i*7+13)&0xFF));}
+    return JSON.parse(out.map(c=>String.fromCharCode(c)).join(''));
   }catch(e){return null;}
 }
 
-/* ── RESET ALL PROGRESS ── */
+/* ── UPGRADES ── */
+function upgradePrice(base, level){ return Math.round(base * Math.pow(2, level)); }
+function getUpgradeLevel(id){ return (shopData.upgrades&&shopData.upgrades[id])||0; }
+function getUpgradeCoinBonus(){ return getUpgradeLevel('coin'); }      // raw level
+function getUpgradeXpBonus(){   return getUpgradeLevel('xp'); }        // raw level
+function getUpgradeCritBonus(){ return getUpgradeLevel('crit'); }      // raw level
+function getCoinUpgradeMult(){  return 1.0 + getUpgradeCoinBonus(); }  // 1 + (level * 1.0)
+function getCritUpgradeBonus(){ return getUpgradeCritBonus() * 0.02; } // level * 0.02
+
+function doUpgrade(type){
+  if(!shopData.upgrades) shopData.upgrades={coin:0,xp:0,crit:0,critDmg:0};
+  const cfg={coin:{base:300,max:20},xp:{base:300,max:20},crit:{base:2500,max:10},critDmg:{base:3000,max:10}};
+  let c=cfg[type]; if(!c) return;
+  let cur=shopData.upgrades[type]||0;
+  if(cur>=c.max){ showShopToast("⚠ MAX LEVEL REACHED","#cc4444"); return; }
+  let price=upgradePrice(c.base, cur);
+  if(shopData.coins<price){ showShopToast("⚠ NOT ENOUGH COINS","#cc4444"); return; }
+  shopData.coins-=price;
+  shopData.upgrades[type]=cur+1;
+  saveAll();
+  renderShop("upgrade");
+}
+
 function resetAllProgress(){
   let msg=appLang==='jp'
     ?'⚠ 全進捗データを削除します。\n\n・全プロフィールと単語データ\n・グローバルXP・レベル・セッション履歴\n・実績・デイリーミッション\n\nこの操作は取り消せません。\n\n本当に削除しますか？'
@@ -700,9 +716,51 @@ function getHardnessMult(){
   RESET_ACHIEVEMENTS.forEach(r=>{if(resetCount>=r.resets)m=r.mult;});
   return m;
 }
-function xpForLevel(lvl){return Math.min(100+Math.floor(lvl/10)*150,15000);}
-function calcLevel(totalXp){let l=0,x=totalXp;while(x>=xpForLevel(l)){x-=xpForLevel(l);l++;}return l;}
-function xpInCurrentLevel(totalXp){let l=0,x=totalXp;while(x>=xpForLevel(l)){x-=xpForLevel(l);l++;}return x;}
+/* ── XP / LEVEL SYSTEM ──
+   Total 100,000 XP = Level 300 (hard cap).
+   Curve: totalXpForLevel(lvl) = 100000*(lvl/300)^1.5
+   Early levels are fast (~19 XP for lv1), later levels slow (~500 XP for lv300).
+*/
+/* ── XP / LEVEL SYSTEM ──
+   Stable linear growth lv1-500, with 10× spike cost every 50 levels.
+   Total 150,000,000 XP = Level 500.
+   Past lv500: each additional level costs 150,000,000 XP.
+   Normal step at lv1≈1,100 XP, lv499≈499,000 XP.
+   Spike at lv50≈500,800, lv100≈1,000,610, lv500≈4,999,030.
+*/
+function xpForLevel(lvl){
+  if(lvl<=0)return 0;
+  if(lvl>500)return 150000000; // past cap: 150M per level
+  var base=Math.round(100+lvl*999.6067);
+  return (lvl%50===0)?base*10:base;
+}
+function _totalXpForLevel(lvl){
+  if(lvl<=0)return 0;
+  if(lvl>500)return 150000000+(lvl-500)*150000000;
+  var t=0;
+  for(var i=1;i<=lvl;i++)t+=xpForLevel(i);
+  return t;
+}
+// Precomputed cumulative XP table for lv0-500 for O(1) lookups
+var _xpTable=(function(){
+  var t=[0];
+  for(var i=1;i<=500;i++)t.push(t[i-1]+xpForLevel(i));
+  return t;
+})();
+function calcLevel(totalXp){
+  if(totalXp<=0)return 0;
+  if(totalXp>=150000000){
+    return 500+Math.floor((totalXp-150000000)/150000000);
+  }
+  // Binary search in precomputed table
+  var lo=0,hi=500;
+  while(lo<hi){var mid=(lo+hi+1)>>1;if(_xpTable[mid]<=totalXp)lo=mid;else hi=mid-1;}
+  return lo;
+}
+function xpInCurrentLevel(totalXp){
+  var lvl=Math.min(calcLevel(totalXp),500);
+  return totalXp-_xpTable[lvl];
+}
 function getRankTitle(level){
   if(level>=80)return{title:"SUPREME OPERATOR",color:"#ff80ff",glow:"0 0 20px rgba(255,128,255,0.6)"};
   if(level>=60)return{title:"SENIOR OPERATOR",color:"#e8a838",glow:"0 0 16px rgba(232,168,56,0.5)"};
@@ -887,7 +945,7 @@ function showLevelUp(newLevel,cb){
   ov.innerHTML=`<div class="levelup-box" style="box-shadow:${rank.glow};"><div class="levelup-label">LEVEL UP</div><div class="levelup-num" style="color:${rank.color};">${newLevel}</div><div class="levelup-rank" style="color:${rank.color};">${rank.title}</div><div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:16px;letter-spacing:2px;">TAP TO CONTINUE</div></div>`;
   document.body.appendChild(ov);
   let done=false;
-  function proceed(){if(done)return;done=true;ov.remove();if(cb)cb();}
+  function proceed(){if(done)return;done=true;try{if(ov.parentNode)ov.remove();}catch(e){}if(cb)cb();}
   // Only allow tap-to-dismiss after a brief moment (prevents instant accidental dismiss)
   setTimeout(()=>{ ov.addEventListener("click",proceed); }, 600);
   setTimeout(proceed,4000);
@@ -1991,7 +2049,7 @@ const EFFECT_ITEMS=[
   {id:"ascend",     name:"ASCEND",      price:6666, icon:"🌑",  color:"#c060ff", desc:"Desaturated reality. Fast-fire glitch. Electric transcendence.", preview:["◈","▓"], special:true},
   {id:"glitchmode", name:"GLITCH MODE", price:3333, icon:"⚠️",  color:"#ff2060", desc:"15% base chance per answer to glitch the next word's mode. 30% to stack +5% charge.", preview:["ERR","░"], special:true},
   {id:"luckysession",name:"LUCKY QUESTION",price:500,icon:"🍀", color:"#3ac864", desc:"20% chance each question becomes lucky: 2x XP + 10 coins. 30% to spawn bonus kotoba.", preview:["✦","★"], special:true},
-  {id:"crit",       name:"CRIT",         price:9999,icon:"💥", color:"#ffcc00", desc:"1% base chance on correct answer: CRIT — 500% XP + 100% bonus coins. Grows +0.1% per level, max 31% (this pool only). +8% while Ascend active.", preview:["CRIT","★"], special:true},
+  {id:"crit",       name:"CRIT",         price:9999,icon:"💥", color:"#ffcc00", desc:"On correct answer: CRIT fires → bonus XP &amp; coins scaled by CRIT DMG upgrade (lv1=×2, lv2=×4…). With Chainsaw: triggers Super CRIT → CRIT DMG escalates again. Grows +0.1% per level, max 31%. +8% Ascend bonus.", preview:["CRIT","★"], special:true},
 ];
 
 /* ── EMBLEM ITEMS CATALOG (Diamond Shop) ── */
@@ -3223,6 +3281,18 @@ function renderShop(tab){
         <button id="wpn-preview-btn" style="width:auto;padding:4px 10px;font-size:8px;letter-spacing:2px;border-color:${wAccent}44;color:${wAccent};background:transparent;white-space:nowrap;">▶ PREVIEW</button>
       </div>
       <div style="font-family:${wMono};font-size:7px;color:${wTextDim};letter-spacing:1px;">Adjust opacity and size of weapon FX. Click PREVIEW to test.</div>
+      ${(function(){
+        let wpnIds=shopData.ownedWeapons; // all owned weapons including crystal
+        if(!wpnIds.length)return '';
+        let fxEnabled=shopData.weaponFxEnabled||{};
+        let btnHtml=wpnIds.map(id=>{
+          let wpn=WEAPON_ITEMS.find(w=>w.id===id);
+          let isOn=fxEnabled[id]!==false;
+          let bc=isOn?wAccent:wBorder, tc=isOn?wAccent:wTextDim, bg=isOn?wAccent+'18':'transparent';
+          return '<button data-action="toggleWpnFx:'+id+'" style="width:auto;padding:3px 9px;font-size:8px;letter-spacing:1px;border:1px solid '+bc+';color:'+tc+';background:'+bg+';white-space:nowrap;">'+(wpn?wpn.icon:'?')+' '+id.toUpperCase()+' '+(isOn?'ON':'OFF')+'</button>';
+        }).join('');
+        return '<div style="margin-top:10px;"><div style="font-family:'+wMono+';font-size:7px;color:'+wAccentDim+';letter-spacing:2px;margin-bottom:6px;">✦ FX TOGGLE — tap to enable/disable per weapon</div><div style="display:flex;flex-wrap:wrap;gap:5px;">'+btnHtml+'</div></div>';
+      })()}
       ${hasWeapon('rebellion')||shopData.equippedWeapon==='rebellion'?`<div style="display:flex;align-items:center;gap:8px;margin-top:7px;">
         <span style="font-family:${wMono};font-size:8px;color:${wAccentDim};letter-spacing:2px;white-space:nowrap;">⚔ REBELLION JIGGLE</span>
         <button id="wpn-jiggle-btn" style="width:auto;padding:3px 10px;font-size:8px;letter-spacing:1px;border:1px solid ${shopData.rebellionJiggle?'#e30018':wBorder};color:${shopData.rebellionJiggle?'#ff4040':wTextDim};background:${shopData.rebellionJiggle?'rgba(227,0,24,0.1)':'transparent'};white-space:nowrap;">${shopData.rebellionJiggle?'ON':'OFF'}</button>
@@ -3231,8 +3301,76 @@ function renderShop(tab){
     ${weaponCards}`;
   }
 
-  let activeItemsHtml=tab==='effect'?effectItemsHtml:tab==='diamond'?diamondHtml:tab==='weapon'?weaponHtml:uiItemsHtml;
-  let gridCols=(tab==='effect'||tab==='diamond'||tab==='weapon')?'1fr':'1fr 1fr';
+
+
+  // ── UPGRADE TAB ──
+  function renderUpgradeCard(cfg){
+    let lvl=shopData.upgrades&&shopData.upgrades[cfg.id]||0;
+    let maxed=lvl>=cfg.max;
+    let nextPrice=maxed?null:upgradePrice(cfg.base,lvl);
+    let canAfford=!maxed&&coins>=nextPrice;
+    let barPct=Math.round((lvl/cfg.max)*100);
+    let actionAttr=maxed?'':'data-action="doUpgrade:'+cfg.id+'"';
+    return `<div ${actionAttr} style="background:${sh.bg};border:1px solid ${maxed?cfg.color+'55':canAfford?cfg.color+'33':sh.border};padding:12px;cursor:${maxed?'default':canAfford?'pointer':'not-allowed'};transition:all 0.2s;position:relative;overflow:hidden;box-shadow:${maxed?'0 0 18px '+cfg.color+'22':'none'};">
+      <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,${cfg.color},transparent);"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span style="font-size:26px;line-height:1;filter:drop-shadow(0 0 6px ${cfg.color});">${cfg.icon}</span>
+        <div style="flex:1;">
+          <div style="font-family:${sh.titleFont};font-size:14px;font-weight:700;color:${cfg.color};letter-spacing:2px;">${cfg.name}</div>
+          <div style="font-family:${sh.monoFont};font-size:8px;color:${sh.textDim};letter-spacing:1px;margin-top:1px;">${cfg.desc}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-family:${sh.titleFont};font-size:20px;font-weight:700;color:${cfg.color};line-height:1;">${lvl}<span style="font-size:10px;color:${sh.textDim};"> / ${cfg.max}</span></div>
+          <div style="font-family:${sh.monoFont};font-size:7px;color:${sh.textDim};letter-spacing:1px;">LEVEL</div>
+        </div>
+      </div>
+      <div style="height:4px;background:${sh.border};margin-bottom:8px;position:relative;overflow:hidden;">
+        <div style="height:100%;width:${barPct}%;background:linear-gradient(90deg,${cfg.color}88,${cfg.color});box-shadow:0 0 6px ${cfg.color};transition:width 0.4s ease;"></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-family:${sh.monoFont};font-size:8px;color:${cfg.color};letter-spacing:1px;">${cfg.currentEffect(lvl)}</div>
+        ${maxed
+          ?`<div style="font-family:${sh.monoFont};font-size:9px;color:${cfg.color};border:1px solid ${cfg.color}55;padding:2px 8px;background:${cfg.color}11;letter-spacing:1px;">★ MAXED</div>`
+          :`<div style="font-family:${sh.monoFont};font-size:9px;color:${canAfford?sh.accent:sh.textDim};letter-spacing:1px;">🪙 ${nextPrice.toLocaleString()}</div>`
+        }
+      </div>
+    </div>`;
+  }
+
+  const UPGRADE_DEFS=[
+    {id:'coin', icon:'🪙', name:'COIN BOOST',    color:'#f0c060', base:300,  max:20,
+     desc:'Each level adds +25% coins — max +500% at lv20. Stacks with all bonuses.',
+     currentEffect:lv=>lv===0?'No bonus yet':`+${lv*25}% Coin Bonus (×${(1+lv*0.25).toFixed(2)})`},
+    {id:'xp',   icon:'⬡',  name:'XP AMPLIFIER', color:'#60c0ff', base:300,  max:20,
+     desc:'Each level adds +25% XP — max +500% at lv20. Stacks with all sources.',
+     currentEffect:lv=>lv===0?'No bonus yet':`+${lv*25}% XP Bonus (×${(1+lv*0.25).toFixed(2)})`},
+    {id:'crit', icon:'💥', name:'CRIT CHANCE',   color:'#ffcc00', base:2500, max:10,
+     desc:'Each level adds +2% CRIT chance. Works even without the CRIT special effect.',
+     currentEffect:lv=>lv===0?'No bonus yet':`+${lv*2}% CRIT chance`},
+    {id:'critDmg',icon:'⚡',name:'CRIT DAMAGE',  color:'#ff6060', base:3000, max:10,
+     desc:'Each CRIT hit: +200% XP & coins per level (lv1=×2, lv2=×4…lv10=×20). Super CRIT escalates again.',
+     currentEffect:lv=>lv===0?'No bonus (CRIT gives ×1)':`CRIT ×${lv*2} XP+coins · Super CRIT ×${lv*lv*4}`},
+  ];
+
+  let upgradeHtml=`
+    <div style="font-family:${sh.monoFont};font-size:8px;color:${sh.accent};letter-spacing:2px;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+      ⬆ PERMANENT UPGRADES
+      <span style="flex:1;height:1px;background:linear-gradient(90deg,${sh.accent}66,transparent);display:block;"></span>
+    </div>
+    <div style="font-family:${sh.monoFont};font-size:8px;color:${sh.textDim};letter-spacing:1px;margin-bottom:14px;line-height:1.6;padding:8px 10px;background:${sh.bg};border:1px solid ${sh.border};border-left:3px solid ${sh.accent}55;">
+      Permanent stat upgrades — persist forever &amp; stack with all bonuses.<br>
+      Price doubles with each level. Click a card to purchase the next level.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      ${UPGRADE_DEFS.map(renderUpgradeCard).join('')}
+    </div>
+    <div style="margin-top:14px;font-family:${sh.monoFont};font-size:8px;color:${sh.textDim};letter-spacing:1px;padding:8px 10px;background:${sh.bg};border:1px solid ${sh.border};text-align:center;">
+      💰 Your coins: <span style="color:${sh.accent};font-size:11px;">${coins.toLocaleString()}</span>
+    </div>
+  `;
+
+  let activeItemsHtml=tab==='effect'?effectItemsHtml:tab==='diamond'?diamondHtml:tab==='weapon'?weaponHtml:tab==='upgrade'?upgradeHtml:uiItemsHtml;
+  let gridCols=(tab==='effect'||tab==='diamond'||tab==='weapon'||tab==='upgrade')?'1fr':'1fr 1fr';
 
   // ── TAB BAR styled per active theme ──
   const tabAcc=sh.accent||'#e8a838';
@@ -3262,6 +3400,7 @@ function renderShop(tab){
     ${tabBtn('effect','✨ EFFECTS')}
     ${tabBtn('diamond','💎 DIAMOND')}
     ${tabBtn('weapon','⚔️ WEAPON')}
+    ${tabBtn('upgrade','⬆ UPGRADE')}
   </div>`;
 
   // Use the per-theme SHOP_RENDERS shell, fall back to arknight
@@ -3538,14 +3677,15 @@ function applyWeaponOnCorrect(baseXp, currentCombo){
 
 // ── Chainsaw super-crit (called when normal CRIT fires) ──
 function applyWeaponCrit(baseXpGained){
-  if(!hasWeapon("chainsaw"))return{superCrit:false,coins:0};
+  if(!hasWeapon("chainsaw"))return{superCrit:false,coins:0,xp:0};
   if(Math.random()<0.50){
     _wpnChainsawCritBonus+=0.06;
     let c=Math.round(baseXpGained*10*0.1);
+    let x=Math.round(baseXpGained*0.5);
     _fx_superCrit();
-    return{superCrit:true,coins:c};
+    return{superCrit:true,coins:c,xp:x};
   }
-  return{superCrit:false,coins:0};
+  return{superCrit:false,coins:0,xp:0};
 }
 
 // ── Laser super-question (called in renderGame for choice mode) ──
@@ -3728,6 +3868,31 @@ function setCrystalSlot(slotIdx,weaponId){
   renderShop("weapon");
 }
 
+/* ── UPGRADE SYSTEM (canonical functions used by processAnswer) ── */
+const UPGRADES_DEF={
+  coin:   {maxLevel:20,basePrice:300,  icon:'🪙',color:'#f0c060',label:'COIN BONUS',  desc:'Each level adds +25% coin gain (max +500%). Price doubles each upgrade.',  perLevel:25},
+  xp:     {maxLevel:20,basePrice:300,  icon:'⬡', color:'#60b8ff',label:'XP BONUS',    desc:'Each level adds +25% XP gain (max +500%). Price doubles each upgrade.',    perLevel:25},
+  crit:   {maxLevel:10,basePrice:2500, icon:'💥',color:'#ff4060',label:'CRIT CHANCE', desc:'Each level adds +2% CRIT hit chance (separate bonus pool).',     perLevel:2},
+  critDmg:{maxLevel:10,basePrice:3000, icon:'⚡',color:'#ff6060',label:'CRIT DAMAGE', desc:'CRIT: +200% XP & coins per level. lv1=×2, lv2=×4…lv10=×20. Super CRIT escalates on top.',perLevel:200},
+};
+function getUpgradeTotalBonus(id){let d=UPGRADES_DEF[id];if(!d)return 0;return getUpgradeLevel(id)*d.perLevel;}
+function getUpgradePrice(id){let d=UPGRADES_DEF[id];if(!d)return 0;let lv=getUpgradeLevel(id);return Math.floor(d.basePrice*Math.pow(2,lv));}
+function getCoinUpgradeMult(){return 1+(getUpgradeTotalBonus('coin')/100);}
+function getXpUpgradeMult(){return 1+(getUpgradeTotalBonus('xp')/100);}
+function getCritUpgradeBonus(){return getUpgradeTotalBonus('crit')/100;}
+function getCritDmgMult(){
+  // lv0 = ×1 (no upgrade), lv1 = ×2 (+200%), lv2 = ×4 (+400%), lv10 = ×20 (+2000%)
+  // "200% bonus" means the bonus portion is lv×2, so total multiplier is max(1, lv*2)
+  let lv=getUpgradeLevel('critDmg');
+  return lv===0?1:lv*2;
+}
+function getCritCoinMult(){
+  // Same scale as XP: lv0=×1, lv1=×2, lv2=×4 ... lv10=×20
+  let lv=getUpgradeLevel('critDmg');
+  return lv===0?1:lv*2;
+}
+
+
 function hasEmblem(id){return shopData.diamondUnlocked&&shopData.ownedEmblems.includes(id)&&!!shopData.activeEmblems[id];}
 
 function showShopToast(msg,color){
@@ -3782,6 +3947,7 @@ function grantShopCoins(xpGained){
   let coinsEarned=Math.floor(xpGained/10*(1+bonus));
   if(coinsEarned>0){shopData.coins=(shopData.coins||0)+coinsEarned;saveAll();}
 }
+
 
 /* ── GLOBAL PROFILE ── */
 function renderGlobalProfile(){
@@ -5288,6 +5454,23 @@ function startGame(type){
 }
 function nextWord(){
   clearTimeout(timerInterval);
+  // Always reset lock state when advancing — prevents freeze if anything above went wrong
+  isLocked=false;_delayTimer=null;_skipCooldown=false;
+  // Abort any in-flight rebellion FX (prevents delayed elements spawning after next word starts)
+  if(window._currentRebToken){window._currentRebToken.active=false;window._currentRebToken=null;}
+  // Clear any lingering stylish rank / sword decorations
+  if(_stylishRankEl){
+    clearTimeout(_stylishRankTimeout);_stylishRankTimeout=null;
+    try{if(_stylishRankEl.parentNode)_stylishRankEl.parentNode.removeChild(_stylishRankEl);}catch(e){}
+    _stylishRankEl=null;
+  }
+  _stylishSwords.forEach(s=>{try{if(s.parentNode)s.parentNode.removeChild(s);}catch(e){}});_stylishSwords=[];
+  // Clean up any stale FX overlays — only pure anonymous FX elements (no dataset attrs, no class, no id)
+  document.querySelectorAll("div[style*='position:fixed']").forEach(el=>{
+    if(el.style.pointerEvents==="none"&&!el.className&&!el.id){
+      try{el.remove();}catch(e){}
+    }
+  });
   if(!sessionWords||!sessionWords.length){renderSummary();return;}
   currentWord=sessionWords.pop();
   // If a glitch word is queued, fire a quick glitch flash before rendering
@@ -5300,7 +5483,12 @@ function nextWord(){
   }
 }
 function skipDelay(){
-  if(!isLocked||_delayTimer===null)return;
+  if(!isLocked)return;
+  if(_delayTimer===null){
+    // _delayTimer can be null during the level-up overlay (it's cleared before showLevelUp).
+    // In that case let the overlay's own click handler proceed; don't force-skip here.
+    return;
+  }
   clearTimeout(_delayTimer);
   _delayTimer=null;
   _skipCooldown=true;
@@ -5354,7 +5542,12 @@ function checkChoice(sel,correct,options){
 function handleHardcoreFail(){
   if(isLocked)return;isLocked=true;combo=0;sessionWrong++;lives--;
   // Clear stylish rank on wrong
-  if(_stylishRankEl){clearTimeout(_stylishRankTimeout);_stylishRankEl.style.animation="stylishOut 0.25s ease forwards";setTimeout(()=>{if(_stylishRankEl){_stylishRankEl.remove();_stylishRankEl=null;}},260);}
+  if(_stylishRankEl){
+    clearTimeout(_stylishRankTimeout);_stylishRankTimeout=null;
+    try{if(_stylishRankEl.parentNode)_stylishRankEl.parentNode.removeChild(_stylishRankEl);}catch(e){}
+    _stylishRankEl=null;
+  }
+  _stylishSwords.forEach(s=>{try{if(s.parentNode)s.parentNode.removeChild(s);}catch(e){}});_stylishSwords=[];
   globalStats.xp=Math.max(0,globalStats.xp-15);
   if(lives<=0){showGameOver();return;}
   nextWord();
@@ -5459,10 +5652,8 @@ function showWeaponTouchAnim(px,py){
   if(uiMode==="simple")return; // effects disabled in Simple mode
   _ensureWeaponKeyframes();
   _ensureEffectKeyframes();
-  // Crystal equipped: always fire crystal starfall first, then slot weapons
-  let isCrystalEquipped=(shopData.equippedWeapon==="crystal"&&shopData.ownedWeapons.includes("crystal"));
-  let ids=getActiveWeaponIds();
-  if(!ids.length&&!isCrystalEquipped)return;
+  let ids=getActiveWeaponIds(); // for crystal: returns slot weapon ids
+  if(!ids.length)return;
   let now=performance.now();
   if(now-_wpnFxLastTime<_WPN_FX_THROTTLE)return; // throttle
   _wpnFxLastTime=now;
@@ -5470,15 +5661,14 @@ function showWeaponTouchAnim(px,py){
   let cy=(py!=null)?py:_lastPY;
   let fxOp=shopData.weaponFxOpacity!=null?Number(shopData.weaponFxOpacity):1.0;
   document.documentElement.style.setProperty("--wpn-fx-opacity",fxOp);
-  if(isCrystalEquipped){
-    // Crystal starfall only — no slot weapon FX
-    _wpnTouchFx("crystal",cx,cy);
-  } else {
-    ids.forEach((id,i)=>{
-      if(i===0) _wpnTouchFx(id,cx,cy);
-      else setTimeout(()=>_wpnTouchFx(id,cx,cy),i*120);
-    });
-  }
+  // Fire each slot weapon staggered — respects per-weapon FX toggle
+  let fxEnabled=shopData.weaponFxEnabled||{};
+  let visibleIds=ids.filter(id=>fxEnabled[id]!==false);
+  if(!visibleIds.length)return;
+  visibleIds.forEach((id,i)=>{
+    if(i===0) _wpnTouchFx(id,cx,cy);
+    else setTimeout(()=>_wpnTouchFx(id,cx,cy),i*140);
+  });
 }
 
 function _wpnOpacityChange(val){
@@ -5492,43 +5682,39 @@ function _wpnOpacityChange(val){
   saveAll();
 }
 function _wpnPreview(){
-  let isCrystalEquipped=(shopData.equippedWeapon==="crystal"&&shopData.ownedWeapons.includes("crystal"));
   let ids=getActiveWeaponIds();
-  if(!ids.length&&!isCrystalEquipped){showShopToast("⚠ No weapon equipped","#cc4444");return;}
+  if(!ids.length){showShopToast("⚠ No weapon equipped","#cc4444");return;}
   let cx=window.innerWidth*0.5,cy=window.innerHeight*0.42;
   _ensureWeaponKeyframes();_ensureEffectKeyframes();
-  if(isCrystalEquipped){
-    _wpnTouchFx("crystal",cx,cy);
-  } else {
-    ids.forEach((id,i)=>{
-      if(i===0)_wpnTouchFx(id,cx,cy);
-      else setTimeout(()=>_wpnTouchFx(id,cx,cy),i*120);
-    });
-  }
+  // Preview shows ALL slot weapons regardless of toggle (so user can see what they have)
+  ids.forEach((id,i)=>{
+    if(i===0)_wpnTouchFx(id,cx,cy);
+    else setTimeout(()=>_wpnTouchFx(id,cx,cy),i*140);
+  });
 }
 
+/* ── Safe FX append: applies opacity/size to an FX element without monkey-patching ── */
+function _wpnFxAppend(el){
+  if(el&&el.style){
+    let op=shopData.weaponFxOpacity!=null?Number(shopData.weaponFxOpacity):1.0;
+    let sz=shopData.weaponFxSize!=null?Number(shopData.weaponFxSize):1.0;
+    if(op!==1.0) el.style.filter=(el.style.filter?el.style.filter+" ":"")+"opacity("+op+")";
+    if(sz!==1.0){
+      var fs=el.style.fontSize;
+      if(fs&&fs.endsWith("px")){el.style.fontSize=(parseFloat(fs)*sz)+"px";}
+      var w=el.style.width,h=el.style.height;
+      if(w&&w.endsWith("px")){el.style.width=(parseFloat(w)*sz)+"px";}
+      if(h&&h.endsWith("px")){el.style.height=(parseFloat(h)*sz)+"px";}
+    }
+  }
+  document.body.appendChild(el);
+  return el;
+}
 function _wpnTouchFx(id,cx,cy){
+  // Check per-weapon FX toggle (default on if not set)
+  if((shopData.weaponFxEnabled||{})[id]===false)return;
   let vw=window.innerWidth, vh=window.innerHeight;
   if(cx==null)cx=vw*0.5; if(cy==null)cy=vh*0.38;
-  // Apply opacity and size directly on each spawned FX element
-  let _origAppend=document.body.appendChild.bind(document.body);
-  document.body.appendChild=function(el){
-    if(el&&el.style){
-      let op=shopData.weaponFxOpacity!=null?Number(shopData.weaponFxOpacity):1.0;
-      let sz=shopData.weaponFxSize!=null?Number(shopData.weaponFxSize):1.0;
-      el.style.filter=(el.style.filter?el.style.filter+" ":"")+"opacity("+op+")";
-      if(sz!==1.0){
-        var fs=el.style.fontSize;
-        if(fs&&fs.endsWith("px")){el.style.fontSize=(parseFloat(fs)*sz)+"px";}
-        var w=el.style.width,h=el.style.height;
-        if(w&&w.endsWith("px")){el.style.width=(parseFloat(w)*sz)+"px";}
-        if(h&&h.endsWith("px")){el.style.height=(parseFloat(h)*sz)+"px";}
-      }
-    }
-    return _origAppend(el);
-  };
-  // Restore after all sync code finishes
-  setTimeout(()=>{document.body.appendChild=_origAppend;},0);
 
   switch(id){
 
@@ -5539,7 +5725,7 @@ function _wpnTouchFx(id,cx,cy){
         color:#ffe040;text-shadow:0 0 12px rgba(255,224,64,0.9),-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000;
         animation:wpnBonk 0.55s cubic-bezier(0.22,1.2,0.36,1) forwards;`;
       el.textContent="BONK!";
-      document.body.appendChild(el);
+      _wpnFxAppend(el);
       setTimeout(()=>el.remove(),600);
       // Stars from impact
       for(let i=0;i<6;i++){
@@ -5550,7 +5736,7 @@ function _wpnTouchFx(id,cx,cy){
           --cx:${Math.cos(ang)*60}px;--cy:${Math.sin(ang)*60}px;--cr:${Math.random()*360}deg;
           animation:wpnCrystalShard 0.5s ease-out ${i*0.04}s forwards;`;
         el2.textContent=["★","✦","✸","💥","✹"][i%5];
-        document.body.appendChild(el2);
+        _wpnFxAppend(el2);
         setTimeout(()=>el2.remove(),600);
       }
       break;
@@ -5567,7 +5753,7 @@ function _wpnTouchFx(id,cx,cy){
           background:rgba(0,20,30,0.85);border:1px solid #7ac8e066;padding:2px 5px;
           animation:wpnRise 0.6s ease-out ${i*0.05}s forwards;`;
         el.textContent=keys[i];
-        document.body.appendChild(el);
+        _wpnFxAppend(el);
         setTimeout(()=>el.remove(),750);
       }
       break;
@@ -5582,7 +5768,7 @@ function _wpnTouchFx(id,cx,cy){
           box-shadow:0 0 6px rgba(122,200,224,0.9),0 0 14px rgba(122,200,224,0.5);
           --ang:${ang}deg;transform-origin:left center;
           animation:slashFade 0.3s ease-out ${i*0.06}s forwards;`;
-        document.body.appendChild(el);
+        _wpnFxAppend(el);
         setTimeout(()=>el.remove(),400);
       }
       // Knife emoji pop
@@ -5590,7 +5776,7 @@ function _wpnTouchFx(id,cx,cy){
       kEl.style.cssText=`position:fixed;left:${cx}px;top:${cy-30}px;pointer-events:none;z-index:20006;
         font-size:36px;animation:wpnSpin 0.5s ease-out forwards;`;
       kEl.textContent="🔪";
-      document.body.appendChild(kEl);
+      _wpnFxAppend(kEl);
       setTimeout(()=>kEl.remove(),550);
       break;
     }
@@ -5605,7 +5791,7 @@ function _wpnTouchFx(id,cx,cy){
           box-shadow:0 0 8px rgba(122,200,224,0.8);
           --ang:${ang}deg;transform-origin:left center;
           animation:slashFade 0.38s ease-out ${i*0.05}s forwards;`;
-        document.body.appendChild(el);
+        _wpnFxAppend(el);
         setTimeout(()=>el.remove(),460);
       }
       // +1s badge
@@ -5614,7 +5800,7 @@ function _wpnTouchFx(id,cx,cy){
         font-family:'Share Tech Mono',monospace;font-size:14px;color:#7ac8e0;font-weight:700;
         text-shadow:0 0 10px rgba(122,200,224,0.9);animation:wpnRise 0.55s ease-out forwards;`;
       tb.textContent="✂ +1s";
-      document.body.appendChild(tb);
+      _wpnFxAppend(tb);
       setTimeout(()=>tb.remove(),600);
       break;
     }
@@ -5626,7 +5812,7 @@ function _wpnTouchFx(id,cx,cy){
         background:linear-gradient(90deg,transparent,#ffe0a0,#fff8e0);
         box-shadow:0 0 10px rgba(255,224,80,0.9);
         animation:wpnBullet 0.22s ease-in forwards;`;
-      document.body.appendChild(bul);
+      _wpnFxAppend(bul);
       setTimeout(()=>bul.remove(),260);
       // Bang word
       let bang=document.createElement("div");
@@ -5635,13 +5821,13 @@ function _wpnTouchFx(id,cx,cy){
         text-shadow:0 0 18px rgba(255,224,80,0.9),-2px -2px 0 #8a6000;
         animation:wpnBonk 0.5s cubic-bezier(0.22,1.2,0.36,1) forwards;`;
       bang.textContent="BANG!";
-      document.body.appendChild(bang);
+      _wpnFxAppend(bang);
       setTimeout(()=>bang.remove(),600);
       // Muzzle flash
       let fl=document.createElement("div");
       fl.style.cssText=`position:fixed;inset:0;background:radial-gradient(circle at 50% 38%,rgba(255,220,80,0.15),transparent 50%);
         pointer-events:none;z-index:19999;animation:effectFlash 0.18s ease-out forwards;`;
-      document.body.appendChild(fl);
+      _wpnFxAppend(fl);
       setTimeout(()=>fl.remove(),200);
       break;
     }
@@ -5652,14 +5838,14 @@ function _wpnTouchFx(id,cx,cy){
       ring.style.cssText=`position:fixed;left:${cx}px;top:${cy}px;width:120px;height:120px;pointer-events:none;z-index:20004;
         border-radius:50%;border:4px solid #e0a020;box-shadow:0 0 20px rgba(224,160,32,0.8);
         animation:wpnPulse 0.5s ease-out forwards;`;
-      document.body.appendChild(ring);
+      _wpnFxAppend(ring);
       setTimeout(()=>ring.remove(),550);
       // Hammer emoji
       let hEl=document.createElement("div");
       hEl.style.cssText=`position:fixed;left:${cx}px;top:${cy-20}px;pointer-events:none;z-index:20006;
         font-size:48px;animation:wpnBonk 0.55s cubic-bezier(0.22,1.2,0.36,1) forwards;`;
       hEl.textContent="🪓";
-      document.body.appendChild(hEl);
+      _wpnFxAppend(hEl);
       setTimeout(()=>hEl.remove(),600);
       // Impact dust particles
       for(let i=0;i<8;i++){
@@ -5670,7 +5856,7 @@ function _wpnTouchFx(id,cx,cy){
           --cx:${Math.cos(ang)*70}px;--cy:${Math.sin(ang)*70}px;--cr:${Math.random()*360}deg;
           animation:wpnCrystalShard 0.4s ease-out ${i*0.03}s forwards;`;
         dp.textContent=["◆","▸","✦","◂","▲"][i%5];
-        document.body.appendChild(dp);
+        _wpnFxAppend(dp);
         setTimeout(()=>dp.remove(),500);
       }
       break;
@@ -5684,7 +5870,7 @@ function _wpnTouchFx(id,cx,cy){
           pointer-events:none;z-index:${20003+i};border-radius:50%;
           border:3px solid #e0b040;box-shadow:0 0 12px rgba(224,176,64,0.7);
           animation:wpnPulse 0.5s ease-out ${i*0.07}s forwards;`;
-        document.body.appendChild(ring);
+        _wpnFxAppend(ring);
         setTimeout(()=>ring.remove(),600);
       }
       let pEl=document.createElement("div");
@@ -5693,7 +5879,7 @@ function _wpnTouchFx(id,cx,cy){
         color:#e0b040;text-shadow:0 0 16px rgba(224,176,64,0.9),-2px -2px 0 #6a4800;
         animation:wpnBonk 0.5s cubic-bezier(0.22,1.2,0.36,1) forwards;`;
       pEl.textContent="POW!";
-      document.body.appendChild(pEl);
+      _wpnFxAppend(pEl);
       setTimeout(()=>pEl.remove(),600);
       break;
     }
@@ -5710,14 +5896,14 @@ function _wpnTouchFx(id,cx,cy){
           box-shadow:0 0 6px ${PELLET_COLS[i%PELLET_COLS.length]};
           --cx:${Math.cos(ang)*d}px;--cy:${Math.sin(ang)*d}px;--cr:0deg;
           animation:wpnCrystalShard 0.35s ease-out ${i*0.02}s forwards;`;
-        document.body.appendChild(sp);
+        _wpnFxAppend(sp);
         setTimeout(()=>sp.remove(),420);
       }
       // Smoke flash
       let smk=document.createElement("div");
       smk.style.cssText=`position:fixed;inset:0;background:radial-gradient(circle at 50% 38%,rgba(200,140,20,0.18),transparent 45%);
         pointer-events:none;z-index:19999;animation:effectFlash 0.25s ease-out forwards;`;
-      document.body.appendChild(smk);
+      _wpnFxAppend(smk);
       setTimeout(()=>smk.remove(),270);
       break;
     }
@@ -5730,7 +5916,7 @@ function _wpnTouchFx(id,cx,cy){
         box-shadow:0 0 10px rgba(224,176,64,0.9),0 0 24px rgba(224,176,64,0.5);
         --ang:-15deg;transform-origin:center center;
         animation:slashFade 0.45s ease-out forwards;`;
-      document.body.appendChild(blade);
+      _wpnFxAppend(blade);
       setTimeout(()=>blade.remove(),500);
       // Afterglow shimmer lines
       for(let i=0;i<3;i++){
@@ -5740,7 +5926,7 @@ function _wpnTouchFx(id,cx,cy){
           background:linear-gradient(90deg,transparent,rgba(224,176,64,0.5),transparent);
           --ang:${-18+i*6}deg;transform-origin:center center;
           animation:slashFade 0.5s ease-out ${0.05+i*0.07}s forwards;`;
-        document.body.appendChild(shimmer);
+        _wpnFxAppend(shimmer);
         setTimeout(()=>shimmer.remove(),650);
       }
       // Kanji pop
@@ -5750,7 +5936,7 @@ function _wpnTouchFx(id,cx,cy){
         text-shadow:0 0 14px rgba(224,176,64,0.9);
         animation:wpnRise 0.55s ease-out forwards;`;
       kj.textContent="斬!";
-      document.body.appendChild(kj);
+      _wpnFxAppend(kj);
       setTimeout(()=>kj.remove(),650);
       break;
     }
@@ -5762,7 +5948,7 @@ function _wpnTouchFx(id,cx,cy){
         background:linear-gradient(180deg,transparent,#e0b040,#fff8c0,#e0b040,transparent);
         box-shadow:0 0 12px rgba(224,176,64,0.9),0 0 30px rgba(224,176,64,0.5);
         --bh:${vh}px;animation:wpnBeam 0.45s ease-out forwards;`;
-      document.body.appendChild(beam);
+      _wpnFxAppend(beam);
       setTimeout(()=>beam.remove(),500);
       // Ground shockwave ring
       let sw=document.createElement("div");
@@ -5770,7 +5956,7 @@ function _wpnTouchFx(id,cx,cy){
         border-radius:50%;pointer-events:none;z-index:20004;
         border:3px solid rgba(224,176,64,0.7);box-shadow:0 0 16px rgba(224,176,64,0.6);
         animation:wpnPulse 0.5s ease-out 0.1s forwards;`;
-      document.body.appendChild(sw);
+      _wpnFxAppend(sw);
       setTimeout(()=>sw.remove(),650);
       break;
     }
@@ -5786,7 +5972,7 @@ function _wpnTouchFx(id,cx,cy){
           box-shadow:0 0 6px rgba(255,224,80,0.8);
           --ang:${-5+Math.random()*10}deg;transform-origin:left center;
           animation:slashFade 0.2s ease-out ${i*0.03}s forwards;`;
-        document.body.appendChild(fl);
+        _wpnFxAppend(fl);
         setTimeout(()=>fl.remove(),280);
       }
       // Muzzle flashes
@@ -5796,7 +5982,7 @@ function _wpnTouchFx(id,cx,cy){
         mf.style.cssText=`position:fixed;left:${mx}px;top:${my}px;pointer-events:none;z-index:20006;
           font-size:20px;animation:wpnBonk 0.2s ease-out ${i*0.04}s forwards;`;
         mf.textContent="💥";
-        document.body.appendChild(mf);
+        _wpnFxAppend(mf);
         setTimeout(()=>mf.remove(),300);
       }
       break;
@@ -5814,7 +6000,7 @@ function _wpnTouchFx(id,cx,cy){
           box-shadow:0 0 10px ${DUAL_COLORS[i]},0 0 20px ${DUAL_COLORS[i]};
           --ang:${ang}deg;transform-origin:${i===0?'right':'left'} center;
           animation:slashFade 0.38s ease-out ${i*0.06}s forwards;`;
-        document.body.appendChild(blade);
+        _wpnFxAppend(blade);
         setTimeout(()=>blade.remove(),480);
       }
       // Clash spark at center
@@ -5823,7 +6009,7 @@ function _wpnTouchFx(id,cx,cy){
         pointer-events:none;z-index:20006;border-radius:50%;
         background:radial-gradient(circle,rgba(255,240,160,0.9),rgba(224,176,64,0.4),transparent);
         animation:wpnPulse 0.35s ease-out 0.1s forwards;`;
-      document.body.appendChild(clash);
+      _wpnFxAppend(clash);
       setTimeout(()=>clash.remove(),500);
       break;
     }
@@ -5837,7 +6023,7 @@ function _wpnTouchFx(id,cx,cy){
         box-shadow:0 0 10px rgba(192,96,255,0.9);
         --ang:0deg;transform-origin:left center;
         animation:slashFade 0.25s ease-out forwards;`;
-      document.body.appendChild(lunge);
+      _wpnFxAppend(lunge);
       setTimeout(()=>lunge.remove(),300);
       // Glint star
       let glint=document.createElement("div");
@@ -5845,7 +6031,7 @@ function _wpnTouchFx(id,cx,cy){
         font-size:24px;color:#e8c0ff;text-shadow:0 0 14px rgba(192,96,255,0.9);
         animation:wpnBonk 0.4s ease-out forwards;`;
       glint.textContent="✦";
-      document.body.appendChild(glint);
+      _wpnFxAppend(glint);
       setTimeout(()=>glint.remove(),450);
       break;
     }
@@ -5862,7 +6048,7 @@ function _wpnTouchFx(id,cx,cy){
           --cx:${Math.cos(ang)*60}px;--cy:${Math.sin(ang)*60}px;--cr:${Math.random()*360}deg;
           animation:wpnCrystalShard 0.6s ease-out ${i*0.05}s forwards;`;
         pg.textContent=PAGES[i%PAGES.length];
-        document.body.appendChild(pg);
+        _wpnFxAppend(pg);
         setTimeout(()=>pg.remove(),700);
       }
       // Magic circle pulse
@@ -5871,7 +6057,7 @@ function _wpnTouchFx(id,cx,cy){
         border-radius:50%;pointer-events:none;z-index:20004;
         border:2px solid rgba(192,96,255,0.7);box-shadow:0 0 16px rgba(192,96,255,0.5);
         animation:wpnPulse 0.5s ease-out forwards;`;
-      document.body.appendChild(mc);
+      _wpnFxAppend(mc);
       setTimeout(()=>mc.remove(),550);
       break;
     }
@@ -5884,7 +6070,7 @@ function _wpnTouchFx(id,cx,cy){
         background:linear-gradient(90deg,transparent 5%,#c060ff 40%,#ffffff 50%,#c060ff 60%,transparent 95%);
         box-shadow:0 0 16px rgba(192,96,255,0.9),0 0 32px rgba(192,96,255,0.5);
         animation:wpnChain 0.35s ease-out forwards;`;
-      document.body.appendChild(laser);
+      _wpnFxAppend(laser);
       setTimeout(()=>laser.remove(),400);
       // Impact glow at center
       let glow=document.createElement("div");
@@ -5892,7 +6078,7 @@ function _wpnTouchFx(id,cx,cy){
         border-radius:50%;pointer-events:none;z-index:20006;
         background:radial-gradient(circle,rgba(255,255,255,0.8),rgba(192,96,255,0.5),transparent);
         animation:wpnPulse 0.3s ease-out 0.1s forwards;`;
-      document.body.appendChild(glow);
+      _wpnFxAppend(glow);
       setTimeout(()=>glow.remove(),450);
       break;
     }
@@ -5902,7 +6088,7 @@ function _wpnTouchFx(id,cx,cy){
       bomb.style.cssText=`position:fixed;left:${cx}px;top:${cy}px;pointer-events:none;z-index:20006;
         font-size:44px;animation:wpnShake 0.4s ease-out forwards;`;
       bomb.textContent="💣";
-      document.body.appendChild(bomb);
+      _wpnFxAppend(bomb);
       setTimeout(()=>bomb.remove(),450);
       // Explosion ring
       let er=document.createElement("div");
@@ -5910,7 +6096,7 @@ function _wpnTouchFx(id,cx,cy){
         border-radius:50%;pointer-events:none;z-index:20004;
         border:4px solid #c060ff;box-shadow:0 0 24px rgba(192,96,255,0.8);
         animation:wpnPulse 0.5s ease-out 0.15s forwards;`;
-      document.body.appendChild(er);
+      _wpnFxAppend(er);
       setTimeout(()=>er.remove(),700);
       // Purple shards
       for(let i=0;i<10;i++){
@@ -5921,7 +6107,7 @@ function _wpnTouchFx(id,cx,cy){
           --cx:${Math.cos(ang)*d}px;--cy:${Math.sin(ang)*d}px;--cr:${Math.random()*360}deg;
           animation:wpnCrystalShard 0.45s ease-out ${i*0.03}s forwards;`;
         sh.textContent=["◆","▸","✦","●","✸"][i%5];
-        document.body.appendChild(sh);
+        _wpnFxAppend(sh);
         setTimeout(()=>sh.remove(),550);
       }
       break;
@@ -5935,7 +6121,7 @@ function _wpnTouchFx(id,cx,cy){
         background:linear-gradient(180deg,transparent,#c060ff,#ffffff,#c060ff,transparent);
         box-shadow:0 0 14px rgba(192,96,255,1),0 0 30px rgba(192,96,255,0.6),0 0 60px rgba(192,96,255,0.3);
         animation:wpnSaberSwing 0.5s cubic-bezier(0.22,1.2,0.36,1) forwards;`;
-      document.body.appendChild(saberBlade);
+      _wpnFxAppend(saberBlade);
       setTimeout(()=>saberBlade.remove(),560);
       // Energy sparks along the arc
       for(let i=0;i<12;i++){
@@ -5948,7 +6134,7 @@ function _wpnTouchFx(id,cx,cy){
           --cx:${Math.cos(ang)*20}px;--cy:${Math.sin(ang)*20}px;--cr:${Math.random()*180}deg;
           animation:wpnCrystalShard 0.35s ease-out ${i*0.03}s forwards;`;
         sp.textContent=["·","✦","*","·","∘"][i%5];
-        document.body.appendChild(sp);
+        _wpnFxAppend(sp);
         setTimeout(()=>sp.remove(),420);
       }
       // Saber charge bar glow if active
@@ -5956,7 +6142,7 @@ function _wpnTouchFx(id,cx,cy){
         let glow2=document.createElement("div");
         glow2.style.cssText=`position:fixed;inset:0;background:radial-gradient(circle at 50% 38%,rgba(192,96,255,0.12),transparent 55%);
           pointer-events:none;z-index:19998;animation:effectFlash 0.3s ease-out forwards;`;
-        document.body.appendChild(glow2);
+        _wpnFxAppend(glow2);
         setTimeout(()=>glow2.remove(),320);
       }
       break;
@@ -5974,7 +6160,7 @@ function _wpnTouchFx(id,cx,cy){
           --cx:${Math.cos(ang)*70}px;--cy:${Math.sin(ang)*70}px;--cr:${Math.random()*360}deg;
           animation:wpnCrystalShard 0.5s ease-out ${i*0.025}s forwards;`;
         ch.textContent=["⛓","◼","▪","◾","⊞"][i%5];
-        document.body.appendChild(ch);
+        _wpnFxAppend(ch);
         setTimeout(()=>ch.remove(),580);
       }
       // Spinning circle
@@ -5984,49 +6170,12 @@ function _wpnTouchFx(id,cx,cy){
         border:3px solid #c060ff;border-top-color:transparent;
         box-shadow:0 0 18px rgba(192,96,255,0.8);
         animation:wpnSpin 0.6s ease-out forwards;`;
-      document.body.appendChild(spin);
+      _wpnFxAppend(spin);
       setTimeout(()=>spin.remove(),650);
       break;
     }
 
-    case "crystal":{ // CRYSTAL — rainbow star fall
-      const STAR_COLS=["#ff4060","#ff8020","#ffe040","#40ff80","#40c0ff","#8040ff","#ff40c0","#fff"];
-      const STAR_SYM=["★","✦","✧","✸","❋","✺","◈","✶","⋆"];
-      for(let i=0;i<24;i++){
-        let col=STAR_COLS[i%STAR_COLS.length];
-        let sx=vw*0.05+Math.random()*vw*0.9;
-        let startY=-(15+Math.random()*60);
-        let fallDist=vh*0.45+Math.random()*vh*0.5;
-        let sz=9+Math.random()*14;
-        let dur=0.5+Math.random()*0.5;
-        let delay=i*0.042;
-        let st=document.createElement("div");
-        st.style.cssText="position:fixed;left:"+sx+"px;top:"+startY+"px;pointer-events:none;z-index:20005;"
-          +"font-size:"+sz+"px;color:"+col+";"
-          +"text-shadow:0 0 8px "+col+",0 0 18px "+col+"88;"
-          +"--cx:"+((Math.random()-0.5)*50)+"px;--cy:"+fallDist+"px;--cr:"+(180+Math.floor(Math.random()*3)*180)+"deg;"
-          +"animation:wpnCrystalShard "+dur+"s ease-in "+delay+"s forwards;";
-        st.textContent=STAR_SYM[i%STAR_SYM.length];
-        document.body.appendChild(st);
-        setTimeout(function(){st.remove();},Math.round((dur+delay+0.12)*1000));
-      }
-      for(let i=0;i<7;i++){
-        let col=STAR_COLS[i%STAR_COLS.length];
-        let sx=vw*0.1+Math.random()*vw*0.8;
-        let streak=document.createElement("div");
-        streak.style.cssText="position:fixed;left:"+sx+"px;top:"+(-(30+Math.random()*40))+"px;"
-          +"width:2px;height:"+(28+Math.random()*36)+"px;pointer-events:none;z-index:20004;"
-          +"background:linear-gradient(180deg,transparent,"+col+"cc,transparent);box-shadow:0 0 5px "+col+";"
-          +"--cx:"+((Math.random()-0.5)*25)+"px;--cy:"+(vh*0.5+Math.random()*vh*0.4)+"px;--cr:0deg;"
-          +"animation:wpnCrystalShard "+(0.48+Math.random()*0.38)+"s ease-in "+(i*0.065)+"s forwards;";
-        document.body.appendChild(streak);setTimeout(function(){streak.remove();},900);
-      }
-      let burst=document.createElement("div");
-      burst.style.cssText="position:fixed;left:"+cx+"px;top:"+cy+"px;width:90px;height:90px;"
-        +"border-radius:50%;pointer-events:none;z-index:20006;"
-        +"background:radial-gradient(circle,rgba(255,255,255,0.55),rgba(180,120,255,0.2),transparent);"
-        +"box-shadow:0 0 22px rgba(160,100,255,0.8);animation:wpnPulse 0.42s ease-out 0.32s forwards;";
-      document.body.appendChild(burst);setTimeout(function(){burst.remove();},820);
+    case "crystal":{ // CRYSTAL — no standalone FX; slot weapons fire individually
       break;
     }
 
@@ -6042,7 +6191,7 @@ function _wpnTouchFx(id,cx,cy){
           --cx:${Math.cos(ang)*d}px;--cy:${Math.sin(ang)*d-20}px;--cr:${Math.random()*360}deg;
           animation:wpnCrystalShard 0.64s ease-out ${i*0.038}s forwards;`;
         h.textContent=["❤️","💕","💗","💖","💓"][i%5];
-        document.body.appendChild(h);
+        _wpnFxAppend(h);
         setTimeout(()=>h.remove(),740+i*38);
       }
       let hGlow=document.createElement("div");
@@ -6051,7 +6200,7 @@ function _wpnTouchFx(id,cx,cy){
         background:radial-gradient(circle,rgba(255,68,136,0.35),rgba(255,68,136,0.08),transparent);
         box-shadow:0 0 24px rgba(255,68,136,0.7);
         animation:wpnPulse 0.52s ease-out forwards;`;
-      document.body.appendChild(hGlow);
+      _wpnFxAppend(hGlow);
       setTimeout(()=>hGlow.remove(),580);
       let hBadge=document.createElement("div");
       hBadge.style.cssText=`position:fixed;left:${cx}px;top:${cy-52}px;pointer-events:none;z-index:20010;
@@ -6059,12 +6208,15 @@ function _wpnTouchFx(id,cx,cy){
         color:#ff4488;text-shadow:0 0 14px rgba(255,68,136,0.95);
         animation:wpnRise 0.52s ease-out forwards;`;
       hBadge.textContent="❤ HC ×2.2";
-      document.body.appendChild(hBadge);
+      _wpnFxAppend(hBadge);
       setTimeout(()=>hBadge.remove(),650);
       break;
     }
 
     case "rebellion":{ // VERGIL JUDGMENT CUT — precise directional slashes
+      if(window._currentRebToken)window._currentRebToken.active=false; // cancel any prior rebellion in-flight
+      let _rebToken={}; _rebToken.active=true;
+      window._currentRebToken=_rebToken;
       let curCombo=combo||0;
       let rebC="#cc1010";
       if(curCombo>=25){rebC="#ff0030";}
@@ -6092,6 +6244,7 @@ function _wpnTouchFx(id,cx,cy){
       dirs.forEach(function(dir,si){
         let delay=si*55; // 55ms apart — tight burst
         setTimeout(function(){
+          if(!_rebToken.active)return; // aborted — next word already started
           // Main thin cut line
           let cut=document.createElement("div");
           let radA=dir.ang*Math.PI/180;
@@ -6107,7 +6260,7 @@ function _wpnTouchFx(id,cx,cy){
             +"background:linear-gradient(90deg,transparent,"+rebC+"dd 25%,#ffffff 50%,"+rebC+"dd 75%,transparent);"
             +"box-shadow:0 0 6px 1px "+rebC+",0 0 12px 2px "+rebC+"55,0 0 2px 1px #fff;"
             +"animation:slashFade 0.28s cubic-bezier(0.08,0.9,0.2,1) forwards;";
-          document.body.appendChild(cut);
+          _wpnFxAppend(cut);
           setTimeout(function(){cut.remove();},320);
           // Faint afterimage
           let echo=document.createElement("div");
@@ -6117,7 +6270,7 @@ function _wpnTouchFx(id,cx,cy){
             +"transform-origin:left center;--ang:"+dir.ang+"deg;"
             +"background:linear-gradient(90deg,transparent,"+rebC+"55,transparent);"
             +"animation:slashFade 0.22s ease-out 0.04s forwards;";
-          document.body.appendChild(echo);
+          _wpnFxAppend(echo);
           setTimeout(function(){echo.remove();},280);
           // Small flash per cut
           let fl=document.createElement("div");
@@ -6126,7 +6279,7 @@ function _wpnTouchFx(id,cx,cy){
             +"border-radius:50%;pointer-events:none;z-index:20012;"
             +"background:radial-gradient(circle,rgba(255,255,255,0.9),"+rebC+"66,transparent);"
             +"animation:wpnPulse 0.18s ease-out forwards;";
-          document.body.appendChild(fl);
+          _wpnFxAppend(fl);
           setTimeout(function(){fl.remove();},200);
         },delay);
       });
@@ -6136,14 +6289,14 @@ function _wpnTouchFx(id,cx,cy){
       vig.style.cssText="position:fixed;inset:0;pointer-events:none;z-index:19995;"
         +"background:radial-gradient(ellipse at center,transparent 35%,"+rebC+"33 75%,"+rebC+"66 100%);"
         +"animation:stylishFlash 0.38s ease-out forwards;";
-      document.body.appendChild(vig);
+      _wpnFxAppend(vig);
       setTimeout(function(){vig.remove();},400);
 
       // Desaturation flash (brief)
       let desat=document.createElement("div");
       desat.style.cssText="position:fixed;inset:0;pointer-events:none;z-index:19994;"
         +"background:rgba(0,0,0,0);animation:rebDesat 0.3s ease-out forwards;";
-      document.body.appendChild(desat);
+      _wpnFxAppend(desat);
       setTimeout(function(){desat.remove();},330);
 
       // Small blood fragment sparks at center
@@ -6159,16 +6312,18 @@ function _wpnTouchFx(id,cx,cy){
           +"--r:"+(Math.random()*360)+"deg;--r2:"+(Math.random()*400)+"deg;"
           +"animation:rebBlood 0.4s ease-out "+(i*0.016)+"s forwards;";
         bp.textContent=bShapes[i%bShapes.length];
-        document.body.appendChild(bp);
+        _wpnFxAppend(bp);
         setTimeout(function(){bp.remove();},460+i*16);
       }
 
-      // Screen jiggle — only if enabled, light shake
+      // Screen jiggle — only if enabled, guard with abort token so it doesn't fire after skip
       if(shopData.rebellionJiggle!==false){
         let a=document.getElementById("app");
+        let _jiggleToken=_rebToken; // capture local ref
         if(a){a.style.animation="none";requestAnimationFrame(function(){
+          if(!_jiggleToken.active)return; // skip was pressed before RAF fired
           a.style.animation="jcShake 0.22s ease";
-          setTimeout(function(){a.style.animation="";},240);
+          setTimeout(function(){if(a)a.style.animation="";},240);
         });}
       }
 
@@ -6184,7 +6339,7 @@ function _wpnTouchFx(id,cx,cy){
           +"letter-spacing:2px;-webkit-text-stroke:1px "+rebC+";"
           +"animation:wpnBonk 0.44s cubic-bezier(0.18,1.3,0.35,1) forwards;";
         chip.textContent="†"+rankLabel;
-        document.body.appendChild(chip);
+        _wpnFxAppend(chip);
         setTimeout(function(){chip.remove();},550);
       }
 
@@ -6199,7 +6354,7 @@ function _wpnTouchFx(id,cx,cy){
           +"letter-spacing:6px;white-space:nowrap;"
           +"animation:stylishIn 0.28s ease-out 0.18s both;";
         jce.textContent="JUDGMENT CUT";
-        document.body.appendChild(jce);
+        _wpnFxAppend(jce);
         setTimeout(function(){jce.style.transition="opacity 0.3s";jce.style.opacity="0";setTimeout(function(){jce.remove();},320);},750);
       }
       break;
@@ -6312,7 +6467,11 @@ function getCritChance(){
   // Lucky Session: +5% CRIT while active
   let luckySpOn=shopData.specialEffectsOn||{};
   let luckyBonus=(shopData.ownedSpecialEffects&&shopData.ownedSpecialEffects.includes("luckysession")&&!!luckySpOn["luckysession"])?0.05:0;
-  return base+devilBonus+ascendBoost+luckyBonus+_wpnChainsawCritBonus;
+  // Glitch question: +5% CRIT on this word only
+  let glitchBonus=glitchWordActive?0.05:0;
+  // Rebellion weapon: +5% CRIT while equipped
+  let rebellionBonus=hasWeapon("rebellion")?0.05:0;
+  return base+devilBonus+ascendBoost+luckyBonus+glitchBonus+rebellionBonus+_wpnChainsawCritBonus+getCritUpgradeBonus();
 }
 function _fx_critHit(){
   let vw=window.innerWidth,vh=window.innerHeight;
@@ -6334,29 +6493,29 @@ function _fx_critHit(){
   _fxEl(`inset:0;background:rgba(255,204,0,0.55);animation:critFlash 0.18s ease-out forwards;`,220);
   _fxEl(`inset:0;background:rgba(255,140,0,0.35);animation:critFlash 0.28s ease-out 0.05s forwards;`,330);
   _fxEl(`inset:0;background:rgba(255,255,255,0.25);animation:critFlash 0.12s ease-out forwards;`,160);
-  // 4 expanding rings
-  [0,0.07,0.14,0.22].forEach((delay,i)=>{
-    let sz=60+i*30;
+  // 3 expanding rings
+  [0,0.08,0.18].forEach((delay,i)=>{
+    let sz=60+i*35;
     let col=i%2===0?"#ffcc00":"#ff9900";
     _fxEl(`left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;border-radius:50%;
-      border:${4-i}px solid ${col};box-shadow:0 0 ${24+i*10}px ${col}cc,0 0 ${48+i*20}px ${col}66;
-      animation:critRing ${0.55+i*0.12}s ease-out ${delay}s forwards;`,800);
+      border:${3-i}px solid ${col};box-shadow:0 0 ${20+i*8}px ${col}cc,0 0 ${40+i*16}px ${col}55;
+      animation:critRing ${0.5+i*0.1}s ease-out ${delay}s forwards;`,700);
   });
   // Cross beams (horizontal + vertical)
   _fxEl(`left:${cx}px;top:${cy}px;width:${vw*1.2}px;height:3px;background:linear-gradient(90deg,transparent,#ffcc00,#fff,#ffcc00,transparent);
     animation:critBeam 0.45s ease-out forwards;box-shadow:0 0 12px #ffcc0088;`,480);
   _fxEl(`left:${cx}px;top:${cy}px;width:3px;height:${vh*1.2}px;background:linear-gradient(180deg,transparent,#ffcc00,#fff,#ffcc00,transparent);
     animation:critBeam 0.45s ease-out forwards;box-shadow:0 0 12px #ffcc0088;`,480);
-  // 40 gold sparks burst
-  for(let i=0;i<40;i++){
-    let ang=(i/40)*Math.PI*2+Math.random()*0.3;
-    let dist=80+Math.random()*180;
+  // 18 gold sparks burst (reduced for stability)
+  for(let i=0;i<18;i++){
+    let ang=(i/18)*Math.PI*2+Math.random()*0.3;
+    let dist=60+Math.random()*140;
     let col=i%4===0?"#ffffff":i%4===1?"#ffcc00":i%4===2?"#ff9900":"#ffee66";
-    let sz=2+Math.random()*6;
+    let sz=2+Math.random()*5;
     _fxEl(`left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;
-      border-radius:${Math.random()>0.5?'50%':'2px'};background:${col};box-shadow:0 0 ${sz*2}px ${col};
+      border-radius:50%;background:${col};box-shadow:0 0 ${sz*2}px ${col};
       --cx:${Math.cos(ang)*dist}px;--cy:${Math.sin(ang)*dist}px;
-      animation:critSpark ${0.3+Math.random()*0.5}s ease-out ${i*0.012}s forwards;`,700);
+      animation:critSpark ${0.25+Math.random()*0.35}s ease-out ${i*0.018}s forwards;`,500);
   }
   // CRIT text — bigger, heavier
   let txt=document.createElement("div");
@@ -6370,9 +6529,15 @@ function _fx_critHit(){
   txt.textContent="CRIT!";
   document.body.appendChild(txt);
   setTimeout(()=>txt.remove(),1150);
-  // Screen shake — stronger
+  // Screen shake — safe RAF reset
   let appEl=document.getElementById("app");
-  if(appEl){appEl.style.animation="critShake 0.45s ease";setTimeout(()=>appEl.style.animation="",460);}
+  if(appEl){
+    appEl.style.animation="none";
+    requestAnimationFrame(()=>{
+      appEl.style.animation="critShake 0.4s ease";
+      setTimeout(()=>appEl.style.animation="",420);
+    });
+  }
 }
 
 function _fx_superCrit(){
@@ -6401,12 +6566,12 @@ function _fx_superCrit(){
   _fxEl(`inset:0;background:rgba(140,0,180,0.45);animation:scFlash 0.22s ease-out 0.06s forwards;`,280);
   _fxEl(`inset:0;background:rgba(255,60,120,0.3);animation:scFlash 0.32s ease-out 0.1s forwards;`,400);
   _fxEl(`inset:0;background:rgba(255,255,255,0.4);animation:scFlash 0.1s ease-out forwards;`,130);
-  // 6 expanding rings — red/purple/white
-  [[0,'#ff0040',6],[0.06,'#cc00ff',4],[0.13,'#ff4080',3],[0.2,'#ffffff',2],[0.28,'#ff0040',2],[0.38,'#cc00ff',1]].forEach(([delay,col,bw],i)=>{
-    let sz=40+i*25;
+  // 4 expanding rings — red/purple/white
+  [[0,'#ff0040',5],[0.07,'#cc00ff',3],[0.15,'#ff4080',2],[0.25,'#ffffff',2]].forEach(([delay,col,bw],i)=>{
+    let sz=40+i*30;
     _fxEl(`left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;border-radius:50%;
-      border:${bw}px solid ${col};box-shadow:0 0 ${30+i*12}px ${col},0 0 ${60+i*24}px ${col}88;
-      animation:${i<3?'scRing':'scRingInner'} ${0.5+i*0.1}s ease-out ${delay}s forwards;`,900);
+      border:${bw}px solid ${col};box-shadow:0 0 ${30+i*12}px ${col},0 0 ${60+i*24}px ${col}66;
+      animation:scRing ${0.45+i*0.1}s ease-out ${delay}s forwards;`,800);
   });
   // Cross beams — thicker, red/purple
   _fxEl(`left:${cx}px;top:${cy}px;width:${vw*1.4}px;height:5px;
@@ -6424,17 +6589,16 @@ function _fx_superCrit(){
     background:linear-gradient(90deg,transparent,#cc00ffaa,#ffffff88,#cc00ffaa,transparent);
     transform-origin:center;transform:translate(-50%,-50%) rotate(-45deg) scaleX(0);
     animation:scBeam 0.45s ease-out 0.1s forwards;box-shadow:0 0 14px #cc00ff77;`,500);
-  // Chain particle burst — 60 sparks, red/purple/white/chain-yellow
-  for(let i=0;i<60;i++){
-    let ang=(i/60)*Math.PI*2+Math.random()*0.25;
-    let dist=100+Math.random()*280;
+  // Chain particle burst — 24 sparks (reduced for stability)
+  for(let i=0;i<24;i++){
+    let ang=(i/24)*Math.PI*2+Math.random()*0.25;
+    let dist=80+Math.random()*200;
     let col=i%5===0?"#ffffff":i%5===1?"#ff0040":i%5===2?"#cc00ff":i%5===3?"#ff80aa":"#ffcc00";
-    let sz=1.5+Math.random()*7;
-    let isChain=i%7===0;
-    _fxEl(`left:${cx}px;top:${cy}px;width:${isChain?sz*3:sz}px;height:${sz}px;
-      border-radius:${isChain?'2px':'50%'};background:${col};box-shadow:0 0 ${sz*3}px ${col};
+    let sz=2+Math.random()*5;
+    _fxEl(`left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;
+      border-radius:50%;background:${col};box-shadow:0 0 ${sz*2}px ${col};
       --cx:${Math.cos(ang)*dist}px;--cy:${Math.sin(ang)*dist}px;--cr:${Math.round(Math.random()*360)}deg;
-      animation:scSpark ${0.35+Math.random()*0.6}s ease-out ${i*0.008}s forwards;`,800);
+      animation:scSpark ${0.3+Math.random()*0.45}s ease-out ${i*0.016}s forwards;`,600);
   }
   // SUPER CRIT text — enormous, red/purple gradient
   let txt=document.createElement("div");
@@ -6457,24 +6621,43 @@ function _fx_superCrit(){
   sub.textContent="⛓️  × 10  🪙";
   document.body.appendChild(sub);
   setTimeout(()=>{txt.remove();sub.remove();},1450);
-  // Brutal screen shake + brief color tint
+  // Brutal screen shake + brief color tint — safe RAF reset
   let appEl=document.getElementById("app");
   if(appEl){
-    appEl.style.animation="scShake 0.6s ease";
-    appEl.style.filter="saturate(2) hue-rotate(-15deg)";
-    setTimeout(()=>{appEl.style.animation="";appEl.style.filter="";},640);
+    appEl.style.animation="none";
+    appEl.style.filter="";
+    requestAnimationFrame(()=>{
+      appEl.style.animation="scShake 0.5s ease";
+      appEl.style.filter="saturate(1.8) hue-rotate(-12deg)";
+      setTimeout(()=>{appEl.style.animation="";appEl.style.filter="";},520);
+    });
   }
 }
-function _showCritToast(xpGained,coinsGained){
+function _showCritToast(xpGained, coinsGained, dmgMult, isSuperCrit){
+  let mult=dmgMult||1;
+  let multLabel=mult>1?` ×${mult}`:'';
+  let tierLabel=isSuperCrit?'💥➜⚡ CRIT + SUPER CRIT':'💥 CRIT';
   let t=document.createElement("div");
   t.style.cssText=`position:fixed;top:55px;left:50%;transform:translateX(-50%);
     background:rgba(20,16,0,0.97);border:1px solid #ffcc00;border-left:3px solid #ffcc00;
     padding:7px 18px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#ffcc00;
     letter-spacing:2px;z-index:20010;pointer-events:none;white-space:nowrap;
     box-shadow:0 0 16px rgba(255,204,0,0.5),0 0 32px rgba(255,204,0,0.2);`;
-  t.textContent=`💥 CRIT! +${xpGained} XP · +${coinsGained} 🪙`;
+  t.textContent=`${tierLabel}${multLabel} +${xpGained} XP · +${coinsGained} 🪙`;
   document.body.appendChild(t);
-  setTimeout(()=>{t.style.transition="opacity 0.5s";t.style.opacity="0";setTimeout(()=>t.remove(),500);},1800);
+  setTimeout(()=>{t.style.transition="opacity 0.5s";t.style.opacity="0";setTimeout(()=>t.remove(),500);},2000);
+}
+
+function _showSuperCritDmgToast(xpGained, coinsGained, mult){
+  let t=document.createElement("div");
+  t.style.cssText=`position:fixed;top:90px;left:50%;transform:translateX(-50%);
+    background:rgba(30,0,20,0.97);border:1px solid #ff0080;border-left:3px solid #ff0080;
+    padding:6px 16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#ff80c0;
+    letter-spacing:2px;z-index:20011;pointer-events:none;white-space:nowrap;
+    box-shadow:0 0 18px rgba(255,0,128,0.6),0 0 36px rgba(200,0,100,0.3);`;
+  t.textContent=`⚡ CRIT DMG ×${mult} +${xpGained} XP · +${coinsGained} 🪙`;
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.transition="opacity 0.5s";t.style.opacity="0";setTimeout(()=>t.remove(),500);},2400);
 }
 
 /* ── Lucky question toast helpers ── */
@@ -6851,11 +7034,11 @@ function _fx_ascendHit(){
 /* ── helper: spawn a fixed DOM particle ── */
 /* ── Perf-optimised FX element pool ── */
 const _fxPool=[];
-const _FX_POOL_MAX=40;
+const _FX_POOL_MAX=80;
 function _fxEl(cssText,removeAfterMs){
   // Reuse a pooled div if available to avoid GC churn
   let e=_fxPool.length?_fxPool.pop():document.createElement("div");
-  e.style.cssText="position:fixed;pointer-events:none;z-index:20000;will-change:transform,opacity;contain:layout style;"+cssText;
+  e.style.cssText="position:fixed;pointer-events:none;z-index:20000;"+cssText;
   document.body.appendChild(e);
   setTimeout(()=>{
     if(e.parentNode)e.parentNode.removeChild(e);
@@ -7347,6 +7530,7 @@ function _fx_dragon(){
 /* ── STYLISH RANK EFFECT (DMC / Picayune) ── */
 let _stylishRankEl=null;
 let _stylishRankTimeout=null;
+let _stylishSwords=[]; // track sword decoration elements for cleanup
 function showStylishRank(comboCount){
   if(uiMode==="simple")return;
   let themeId=shopData.activeUI||"arknight";
@@ -7409,8 +7593,13 @@ function showStylishRank(comboCount){
     });}
   }
 
-  // ── Kill old rank el ──
-  if(_stylishRankEl){clearTimeout(_stylishRankTimeout);_stylishRankEl.remove();_stylishRankEl=null;}
+  // ── Kill old rank el + sword decorations ──
+  if(_stylishRankEl){
+    clearTimeout(_stylishRankTimeout);_stylishRankTimeout=null;
+    try{if(_stylishRankEl.parentNode)_stylishRankEl.parentNode.removeChild(_stylishRankEl);}catch(e){}
+    _stylishRankEl=null;
+  }
+  _stylishSwords.forEach(s=>{try{if(s.parentNode)s.parentNode.removeChild(s);}catch(e){}});_stylishSwords=[];
 
   // ── Main rank letter ──
   let el=document.createElement("div");
@@ -7432,6 +7621,7 @@ function showStylishRank(comboCount){
     -webkit-text-stroke:${comboCount>=8?(isRebMode?'3':'2')+'px '+cfg.color:'1px '+cfg.color};
   `;
   el.textContent=cfg.rank;
+  // Note: _stylishRankEl is cleaned up explicitly in nextWord() — no dataset marker needed
 
   // ── Sub-label ──
   let label=document.createElement("div");
@@ -7470,10 +7660,13 @@ function showStylishRank(comboCount){
   document.body.appendChild(el);
   _stylishRankEl=el;
 
+  let holdMs=cfg.rank==="SSS"?1400:cfg.rank==="SS"?1100:cfg.rank==="S"?950:isRebMode?800:700;
+
   // ── Rebellion: decorative sword icon flanking rank ──
   if(isRebMode&&comboCount>=5){
     ["left","right"].forEach((side,si)=>{
       let sword=document.createElement("div");
+      // sword tracked in _stylishSwords, cleaned by nextWord()
       sword.style.cssText=`position:fixed;
         ${side==="left"?"right":"left"}:calc(50% + ${cfg.size*0.55}px);
         top:37%;transform:translateY(-50%) ${side==="left"?"scaleX(-1)":""};
@@ -7483,15 +7676,24 @@ function showStylishRank(comboCount){
         animation:rebStyleLabel 0.2s ease-out ${0.05+si*0.04}s both;`;
       sword.textContent="🗡️";
       document.body.appendChild(sword);
-      setTimeout(()=>sword.remove(),holdMs+500);
+      _stylishSwords.push(sword);
+      setTimeout(()=>{try{sword.remove();}catch(e){}},holdMs+500);
     });
   }
-
-  let holdMs=cfg.rank==="SSS"?1400:cfg.rank==="SS"?1100:cfg.rank==="S"?950:isRebMode?800:700;
   _stylishRankTimeout=setTimeout(()=>{
+    _stylishRankTimeout=null;
     if(el.parentNode){
       el.style.animation=isRebMode?"rebRankOut 0.38s ease forwards":"stylishOut 0.4s ease forwards";
-      setTimeout(()=>{el.remove();if(_stylishRankEl===el)_stylishRankEl=null;},420);
+      setTimeout(()=>{
+        try{if(el.parentNode)el.parentNode.removeChild(el);}catch(e){}
+        if(_stylishRankEl===el)_stylishRankEl=null;
+        _stylishSwords.forEach(s=>{try{if(s.parentNode)s.parentNode.removeChild(s);}catch(e){}});
+        _stylishSwords=[];
+      },420);
+    } else {
+      if(_stylishRankEl===el)_stylishRankEl=null;
+      _stylishSwords.forEach(s=>{try{if(s.parentNode)s.parentNode.removeChild(s);}catch(e){}});
+      _stylishSwords=[];
     }
   },holdMs);
 }
@@ -7540,10 +7742,11 @@ function processAnswer(isCorrect){
     let cutterBonus=_adv&&hasWeapon("cutter")?1.01:1.0;
     let saberBonus=_adv&&_wpnSaberActive?2.0:1.0;
     let heartHcMult=(_adv&&hardcoreMode&&hasWeapon("heart"))?2.2:1.0;
-    let xpGained=Math.round(xpBase*mult*(hardcoreMode?1.5:1)*randomBonus*ascendBonus*luckyBonus*veteranBonus*keyboardBonus*cutterBonus*saberBonus*heartHcMult);
+    let upgradeXpMult=getXpUpgradeMult(); // +100% per XP upgrade level
+    let xpGained=Math.round(xpBase*mult*(hardcoreMode?1.5:1)*randomBonus*ascendBonus*luckyBonus*veteranBonus*keyboardBonus*cutterBonus*saberBonus*heartHcMult*upgradeXpMult);
 
     // ── STEP 2: Gather ALL coin multipliers — compute base coin grant with all % bonuses stacked ──
-    let coinMultTotal=1.0;
+    let coinMultTotal=getCoinUpgradeMult(); // +100% per Coin upgrade level
     if(_adv&&hardcoreMode&&hasWeapon("heart")) coinMultTotal+=1.2; // +120%
     if(_adv&&hasEmblem("workaholic"))           coinMultTotal+=0.5; // +50%
     if(_adv&&hasWeapon("punch"))                coinMultTotal+=0.3; // +30%
@@ -7569,9 +7772,8 @@ function processAnswer(isCorrect){
       _showWeaponBadge("🔆 SUPER Q! +100🪙","#c060ff",1600);
       _wpnLaserSuperActive=false;
     }
-    // Rebellion: flat +5 coins every answer + stylish rank XP+coin bonus
+    // Rebellion: stylish rank XP+coin bonus (flat +5 coins removed)
     if(_adv&&hasWeapon("rebellion")){
-      shopData.coins=(shopData.coins||0)+5;
       if(combo>=3){
         let rb=getStylishRankBonus(combo);
         if(rb.xpPct>0){
@@ -7606,16 +7808,41 @@ function processAnswer(isCorrect){
       _showLuckyXPToast(xpGained);
     }
     // ── CRIT CHECK ──
-    if(_adv&&hasCritEffect()&&Math.random()<getCritChance()){
-      let critXp=Math.round(xpGained*5);
-      let critCoins=Math.round((xpGained*0.1+1)*2);
-      prof.xp=(prof.xp||0)+critXp;
-      globalStats.xp+=critXp;sessionXpGain+=critXp;
-      shopData.coins=(shopData.coins||0)+critCoins;
-      _fx_critHit();
-      _showCritToast(xpGained+critXp,critCoins);
-      let cwRes=applyWeaponCrit(xpGained+critXp);
-      if(cwRes.superCrit) shopData.coins=(shopData.coins||0)+cwRes.coins;
+    // Flow: CRIT fires → CRIT DMG adds bonus on top → Super CRIT (chainsaw) adds (base+critDmg) again
+    let _upgCritBonus=getCritUpgradeBonus(); // crit chance upgrade: level * 0.02
+    let _critEligible=_adv&&(hasCritEffect()||_upgCritBonus>0);
+    let _critChance=hasCritEffect()?getCritChance():_upgCritBonus;
+    if(_critEligible&&Math.random()<_critChance){
+
+      // ── Step 2: CRIT DMG buff adds on top of the base answer rewards ──
+      let _critDmgMult=getCritDmgMult();   // lv0=×1, lv1=×2, lv2=×4 … lv10=×20
+      let _critCoinMult=getCritCoinMult();
+      // Glitch question: CRIT coins ×2 on top of everything
+      let _glitchCritCoinBonus=glitchWordActive?2:1;
+      let critDmgXp   =Math.round(xpGained*_critDmgMult);
+      let critDmgCoins=Math.round(coinsGranted*_critCoinMult*_glitchCritCoinBonus);
+      prof.xp=(prof.xp||0)+critDmgXp;
+      globalStats.xp+=critDmgXp; sessionXpGain+=critDmgXp;
+      shopData.coins=(shopData.coins||0)+critDmgCoins;
+
+      // ── Step 3: Super CRIT (chainsaw, 50% chance) ──
+      // Takes the TOTAL of base answer + CRIT DMG bonus and adds it all again
+      let cwRes=applyWeaponCrit(xpGained+critDmgXp);
+      if(cwRes.superCrit){
+        // Super CRIT: only show super CRIT effect, skip normal CRIT effect
+        _fx_superCrit();
+        let superXp   =Math.round((xpGained+critDmgXp)*_critDmgMult);
+        let superCoins=Math.round((coinsGranted+critDmgCoins)*_critCoinMult);
+        prof.xp=(prof.xp||0)+superXp;
+        globalStats.xp+=superXp; sessionXpGain+=superXp;
+        shopData.coins=(shopData.coins||0)+superCoins+cwRes.coins;
+        _showSuperCritDmgToast(superXp, superCoins+cwRes.coins, _critDmgMult);
+      } else {
+        // Normal CRIT only — show CRIT effect
+        _fx_critHit();
+      }
+
+      _showCritToast(critDmgXp, critDmgCoins, _critDmgMult, cwRes.superCrit);
       saveAll();
     }
     globalStats.totalCorrect=(globalStats.totalCorrect||0)+1;
@@ -7904,9 +8131,98 @@ function renderStats(){
   let pRank=getRankTitle(pLv);
   let isJP=appLang==='jp';
 
-  // Profile switcher row
+  // ── COMPUTE ALL ACTIVE BUFFS ──
+  // XP multiplier total
+  let xpSources=[];
+  let xpMult=1.0;
+  let upgXpLv=getUpgradeLevel('xp');
+  if(upgXpLv>0){let m=getXpUpgradeMult();xpMult*=m;xpSources.push({label:'⬆ XP Upgrade LV.'+upgXpLv,val:'×'+m,color:'#60c0ff'});}
+  if(hasEmblem('veteran')){xpMult*=1.3;xpSources.push({label:'⚜️ Veteran Emblem',val:'+30%',color:'#e8c060'});}
+  if(hasWeapon('keyboard')){xpMult*=1.02;xpSources.push({label:'⌨️ Keyboard',val:'+2%',color:'#7ac8e0'});}
+  if(hasWeapon('cutter')){xpMult*=1.01;xpSources.push({label:'✂️ Cutter',val:'+1%',color:'#7ac8e0'});}
+  if(hardcoreMode){xpMult*=1.5;xpSources.push({label:'💀 Hardcore',val:'+50%',color:'#c94040'});}
+  if(hardcoreMode&&hasWeapon('heart')){xpMult*=2.2;xpSources.push({label:'❤️ Heart (HC)',val:'×2.2',color:'#ff4488'});}
+  if(bamboozleMode){xpMult*=1.2;xpSources.push({label:'🎭 Bamboozle',val:'+20%',color:'#c060ff'});}
+  else if(randomOptions){xpMult*=1.1;xpSources.push({label:'🎲 Random Options',val:'+10%',color:'#9060e0'});}
+  // Saber is session-only, note it
+  if(hasWeapon('lightsaber'))xpSources.push({label:'⚡ Light Saber (full)',val:'×2 (session)',color:'#c060ff'});
+  if(hasWeapon('hammer'))xpSources.push({label:'🪓 Hammer (proc)',val:'20% → +30%',color:'#7ac8e0'});
+  if(hasWeapon('shotgun'))xpSources.push({label:'🎯 Shotgun (end)',val:'30% → +30% end',color:'#e0b040'});
+  if(hasWeapon('sword'))xpSources.push({label:'🗡️ Sword (end)',val:'20% → +100% end',color:'#e0b040'});
+  if(hasWeapon('dualsword'))xpSources.push({label:'⚔️ Dual Sword (end)',val:'30% → +150% end',color:'#e0b040'});
+  if(hasWeapon('bomb'))xpSources.push({label:'💣 Bomb (3 bombs)',val:'end ×3 XP',color:'#c060ff'});
+
+  // Coin multiplier total
+  let coinSources=[];
+  let coinMult=1.0;
+  let upgCoinLv=getUpgradeLevel('coin');
+  if(upgCoinLv>0){let m=getCoinUpgradeMult();coinMult*=m;coinSources.push({label:'⬆ Coin Upgrade LV.'+upgCoinLv,val:'×'+m,color:'#f0c060'});}
+  if(hasEmblem('workaholic')){coinMult*=1.5;coinSources.push({label:'💼 Workaholic Emblem',val:'+50%',color:'#60c8e8'});}
+  if(hasWeapon('punch')){coinMult*=1.3;coinSources.push({label:'👊 Punch',val:'+30%',color:'#e0b040'});}
+  if(hardcoreMode&&hasWeapon('heart')){coinMult*=2.2;coinSources.push({label:'❤️ Heart (HC)',val:'×2.2',color:'#ff4488'});}
+  if(hasWeapon('bonk'))coinSources.push({label:'🔨 Bonk',val:'+1🪙 flat/answer',color:'#7ac8e0'});
+  if(hasWeapon('pistol'))coinSources.push({label:'🔫 Pistol',val:'+5🪙 per 3 combo',color:'#7ac8e0'});
+  if(hasWeapon('katana'))coinSources.push({label:'⚔️ Katana',val:'30% → +15🪙',color:'#e0b040'});
+  if(hasWeapon('ak47'))coinSources.push({label:'💥 AK-47',val:'+30🪙 per 10 combo',color:'#e0b040'});
+  // Rebellion flat coin removed
+  if(hasWeapon('lightsaber'))coinSources.push({label:'⚡ Light Saber (full)',val:'×2 (session)',color:'#c060ff'});
+  if(hasWeapon('bomb'))coinSources.push({label:'💣 Bomb (3 bombs)',val:'end ×5 coins',color:'#c060ff'});
+  if(hasWeapon('laser'))coinSources.push({label:'🔆 Laser',val:'15% → +100🪙 super Q',color:'#c060ff'});
+  if(hasEmblem('combomaster'))coinSources.push({label:'🔥 Combo Master',val:'+25🪙 per 10 combo',color:'#ff8c30'});
+
+  // CRIT chance total
+  let critSources=[];
+  let lv=globalStats.level||0;
+  let critBase=Math.min(0.31, 0.01+lv*0.001);
+  let critTotal=critBase;
+  if(hasCritEffect())critSources.push({label:'💥 CRIT Effect (LV.'+lv+')',val:(critBase*100).toFixed(1)+'% (cap 31%)',color:'#ffcc00'});
+  let upgCritLv=getUpgradeLevel('crit');
+  if(upgCritLv>0){let b=getCritUpgradeBonus();critTotal+=b;critSources.push({label:'⬆ Crit Upgrade LV.'+upgCritLv,val:'+'+(b*100).toFixed(0)+'%',color:'#ff4060'});}
+  if(hasEmblem('devilhunter')){critTotal+=0.10;critSources.push({label:'🔱 Devil Hunter',val:'+10%',color:'#ff4060'});}
+  if(hasWeapon('rebellion')){critTotal+=0.05;critSources.push({label:'🗡️ Rebellion',val:'+5%',color:'#e30018'});}
+  if(hasWeapon('chainsaw'))critSources.push({label:'⛓️ Chainsaw (build)',val:'+6% per CRIT (stackable)',color:'#c060ff'});
+  critSources.push({label:'⚡ Ascend bonus (active)',val:'+8% (while active)',color:'#c060ff'});
+  critSources.push({label:'🍀 Lucky Session (active)',val:'+5% (while on)',color:'#3ac864'});
+  critSources.push({label:'⚠ Glitch question',val:'+5% (per glitch word)',color:'#ff2060'});
+
+  // CRIT damage multiplier
+  let critDmgSources=[];
+  let critDmgLv=getUpgradeLevel('critDmg');
+  let critDmgMult=getCritDmgMult();
+  let critCoinMult=getCritCoinMult();
+  if(critDmgLv>0){
+    critDmgSources.push({label:'⬆ Crit DMG Upgrade LV.'+critDmgLv,val:'CRIT XP ×'+critDmgMult+' · Coins ×'+critCoinMult,color:'#ff6060'});
+    if(hasWeapon('chainsaw'))critDmgSources.push({label:'⛓️ Super CRIT (50% after CRIT)',val:'(base+critDmg) ×'+critDmgMult+' again',color:'#c060ff'});
+  } else {
+    critDmgSources.push({label:'⬆ Crit DMG Upgrade',val:'Not purchased (LV.0)',color:'#444'});
+  }
+
+  // Active weapons list
+  let activeWpns=getActiveWeaponIds();
+
+  // ── HELPER: render a buff row ──
+  function buffRow(src){
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;border-left:2px solid ${src.color}55;margin:2px 0;background:var(--bg-card);">
+      <span style="font-family:'Share Tech Mono',monospace;font-size:9px;color:${src.color};letter-spacing:1px;">${src.label}</span>
+      <span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:${src.color};">${src.val}</span>
+    </div>`;
+  }
+  function buffSection(title,color,totalLabel,rows){
+    return `<div style="margin-bottom:14px;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:${color};margin:8px 0 4px;display:flex;align-items:center;gap:8px;">
+        ${title}<span style="flex:1;height:1px;background:linear-gradient(90deg,${color}66,transparent);"></span>
+        <span style="font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;color:${color};">${totalLabel}</span>
+      </div>
+      ${rows.map(buffRow).join('')}
+    </div>`;
+  }
+
+  // ── Profile switcher ──
   let profileNames=Object.keys(profiles);
   let switcherHtml=profileNames.length>1?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">${profileNames.map(n=>`<button onclick="currentProfile='${n}';words=[...(profiles['${n}'].words||[])];renderStats();" style="width:auto;padding:4px 12px;font-size:10px;letter-spacing:1px;border-color:${currentProfile===n?'var(--accent)':'var(--border)'};color:${currentProfile===n?'var(--accent)':'var(--text-dim)'};background:${currentProfile===n?'rgba(232,168,56,0.1)':'var(--bg-card)'};justify-content:center;">${n}</button>`).join('')}</div>`:'';
+
+  // ── CRIT total display ──
+  let critTotalPct=(critTotal*100).toFixed(1);
 
   app.innerHTML=`<div class="container">
     <div class="ark-header"><button class="back" data-action="renderMenu">${t('back')}</button><div class="ark-title">${isJP?'戦闘 <span>記録</span>':'Combat <span>Records</span>'}</div></div>
@@ -7935,7 +8251,27 @@ function renderStats(){
       <div class="ark-stat"><div class="ark-stat-label">${isJP?'不正解数':'Wrong'}</div><div class="ark-stat-value" style="color:var(--red);">${wrong}</div></div>
     </div>
     <div style="margin:12px 0 6px;"><div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--text-dim);margin-bottom:6px;">${isJP?'習得率':'MASTERY'} — ${mastered}/${totalWords} (${mastPct}%)</div><div class="ark-progress"><div class="ark-progress-fill" style="width:${mastPct}%;"></div></div></div>
-    <button data-action="renderAchievements" style="margin-top:12px;border-color:var(--accent-dim);color:var(--accent);">🏆 ${t('achiev')}</button>
+
+    <div class="ark-section" style="color:#60c0ff;">⬆ ${isJP?'アクティブバフ — 合計':'ACTIVE BUFFS — TOTALS'}</div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid rgba(96,192,255,0.4);padding:8px 10px;margin-bottom:12px;font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:1px;line-height:1.7;">
+      ${isJP?'以下は現在の全バフを合計した実数値です。':'All current buffs summed — reflects real values applied each correct answer.'}
+    </div>
+
+    ${buffSection('⬡ XP MULTIPLIER','#60c0ff','×'+xpMult.toFixed(2)+' base',xpSources.length?xpSources:[{label:'No XP buffs active',val:'×1.0',color:'#444'}])}
+    ${buffSection('🪙 COIN MULTIPLIER','#f0c060','×'+coinMult.toFixed(2)+' base',coinSources.length?coinSources:[{label:'No coin buffs active',val:'×1.0',color:'#444'}])}
+    ${buffSection('💥 CRIT CHANCE','#ffcc00',critTotalPct+'% total',critSources.length?critSources:[{label:'No crit buffs active',val:'0%',color:'#444'}])}
+    ${buffSection('⚡ CRIT DAMAGE','#ff6060',critDmgLv>0?'×'+critDmgMult+' XP · ×'+critCoinMult+' coins':'No upgrade',critDmgSources)}
+
+    ${activeWpns.length?`<div class="ark-section" style="color:#c060ff;">⚔️ ${isJP?'装備中ウェポン':'EQUIPPED WEAPONS'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;">
+      ${activeWpns.map(id=>{let w=WEAPON_ITEMS.find(i=>i.id===id);if(!w)return'';let tc=WEAPON_TIERS[w.tier];return`<div style="background:var(--bg-card);border:1px solid ${tc.color}44;border-left:2px solid ${tc.color};padding:8px 10px;">
+        <div style="font-size:18px;margin-bottom:2px;">${w.icon}</div>
+        <div style="font-family:'Rajdhani',sans-serif;font-size:12px;font-weight:700;color:${tc.color};letter-spacing:1px;">${w.name}</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);margin-top:2px;">${w.buff}</div>
+      </div>`;}).join('')}
+    </div>`:''}
+
+    <button data-action="renderAchievements" style="margin-top:4px;border-color:var(--accent-dim);color:var(--accent);">🏆 ${t('achiev')}</button>
   </div>`;
 }
 
@@ -8040,7 +8376,7 @@ function renderShare(){
   let gpSeen=Object.keys(globalProfile.seenKotoba||{}).length;
 
   // Encode the full save data for export (uses globalProfile too)
-  let savePayload={profiles,globalStats,globalProfile,playedGroups,achievements,dailyMissions,sessionHistory,resetCount};
+  let savePayload={profiles,globalStats,globalProfile,playedGroups,achievements,dailyMissions,sessionHistory,resetCount,shopData};
   let encodedReport=_encodeData(savePayload)||"// ENCODE ERROR //";
 
   // Profile switcher
@@ -8128,17 +8464,7 @@ function renderShare(){
     let file=this.files[0];if(!file)return;
     let r=new FileReader();
     r.onload=e=>{
-      // Read raw result — works for both text and binary base64 saves
-      let raw=e.target.result;
-      // If readAsArrayBuffer, convert to string
-      if(raw instanceof ArrayBuffer){
-        let bytes=new Uint8Array(raw);
-        let str='';for(let i=0;i<bytes.length;i++)str+=String.fromCharCode(bytes[i]);
-        raw=str;
-      }
-      // Strip any whitespace/newlines that may be added by OS or text editors
-      let trimmed=raw.trim().replace(/\r?\n|\r/g,'');
-      let decoded=_decodeData(trimmed);
+      let decoded=_decodeData(e.target.result.trim());
       if(!decoded||typeof decoded!=='object'){
         alert(isJP?'無効なセーブデータです。Kotoba Trainerのエクスポートファイル(.ktb)のみ対応しています。':'Invalid save data. Only .ktb files exported from Kotoba Trainer are supported.');
         return;
@@ -8155,8 +8481,7 @@ function renderShare(){
       alert(isJP?'インポートが完了しました！':'Import successful!');
       renderMenu();
     };
-    // Read as ArrayBuffer for reliable binary handling on all platforms/browsers
-    r.readAsArrayBuffer(file);
+    r.readAsText(file);
   });
 
   document.getElementById("btn-reset-all").addEventListener("click", resetAllProgress);
@@ -13340,6 +13665,8 @@ app.addEventListener("click", function(e){
     case "equipEffect":        equipEffect(args[0]); break;
     case "buySpecialEffect":   buySpecialEffect(args[0]); break;
     case "toggleSpecialEffect":toggleSpecialEffect(args[0]); break;
+    case "doUpgrade":          doUpgrade(args[0]); break;
+    case "toggleWpnFx":        {let fid=args[0];if(!shopData.weaponFxEnabled)shopData.weaponFxEnabled={};shopData.weaponFxEnabled[fid]=(shopData.weaponFxEnabled[fid]===false)?true:false;saveAll();renderShop("weapon");setTimeout(_wireWeaponShopControls,0);} break;
     case "unlockDiamond":      unlockDiamond(); break;
     case "buyEmblem":          buyEmblem(args[0]); break;
     case "toggleEmblem":       toggleEmblem(args[0]); break;
@@ -13399,28 +13726,55 @@ document.addEventListener("touchstart",function(e){
     _lastPX=e.touches[0].clientX;
     _lastPY=e.touches[0].clientY;
   }
-  // Fire weapon FX everywhere (not just in game)
-  if(getActiveWeaponIds().length&&uiMode!=="simple"){
+  let willSkip=isLocked&&_delayTimer!==null&&!_skipCooldown&&!e.target.closest("button[data-action]");
+  // Fire weapon FX only when NOT skipping and NOT in skip cooldown
+  if(!willSkip&&!_skipCooldown&&getActiveWeaponIds().length&&uiMode!=="simple"){
     showWeaponTouchAnim(_lastPX,_lastPY);
   }
-  if(isLocked&&_delayTimer!==null&&!_skipCooldown){
-    if(!e.target.closest("button[data-action]")){skipDelay();}
-  }
+  if(willSkip){skipDelay();}
 },{passive:true});
 
 document.addEventListener("click",function(e){
   _lastPX=e.clientX; _lastPY=e.clientY;
-  // Fire weapon FX everywhere — skip answer buttons (they fire themselves on correct answer)
-  if(getActiveWeaponIds().length&&uiMode!=="simple"){
+  // Fire weapon FX — but NOT during skip cooldown, not on answer buttons, not on skip-advance
+  if(!_skipCooldown&&getActiveWeaponIds().length&&uiMode!=="simple"){
     let isAnswerBtn=e.target.closest(".choiceBtn")||e.target.closest("#btnTyping")||e.target.closest("#sort-submit-btn");
-    if(!isAnswerBtn){
+    let isSkip=isLocked&&_delayTimer!==null&&!e.target.closest("button[data-action]");
+    if(!isAnswerBtn&&!isSkip){
       showWeaponTouchAnim(e.clientX,e.clientY);
     }
   }
 },{passive:true});
 
-renderMenu();
+/* ── SAFETY WATCHDOG: recover from frozen game state ── */
+(function(){
+  let _watchdogTimer=null;
+  setInterval(function(){
+    if(isLocked&&_delayTimer===null&&!document.querySelector(".levelup-overlay")&&!document.getElementById("exit-warning-overlay")){
+      if(!_watchdogTimer){
+        _watchdogTimer=setTimeout(function(){
+          _watchdogTimer=null;
+          if(!isLocked)return;
+          if(_delayTimer!==null||document.querySelector(".levelup-overlay")||document.getElementById("exit-warning-overlay"))return;
+          console.warn("[Kotoba] Watchdog: frozen game detected, forcing nextWord()");
+          isLocked=false;_skipCooldown=false;
+          // Sweep all stale FX
+          document.querySelectorAll("div[style*='position:fixed']").forEach(el=>{
+            if(el.style.pointerEvents==="none"&&!el.className&&!el.id&&Object.keys(el.dataset).length===0){
+              try{el.remove();}catch(e){}
+            }
+          });
+          if(sessionWords&&sessionWords.length>0){nextWord();}
+          else if(typeof renderSummary==="function"){renderSummary();}
+        },8000);
+      }
+    }else{
+      if(_watchdogTimer){clearTimeout(_watchdogTimer);_watchdogTimer=null;}
+    }
+  },2000);
+})();
 
+renderMenu();
 if('serviceWorker' in navigator){
   if(navigator.serviceWorker.controller){
     navigator.serviceWorker.getRegistrations().then(regs=>{
