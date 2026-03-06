@@ -285,7 +285,7 @@ if(!globalProfile.seenKotoba) globalProfile.seenKotoba = {};
 })();
 
 let currentProfile=null,words=[],sessionWords=[],gameMode="",gameType="",currentWord={};
-let stepSize=25,currentStepAmount=0,answerDelay=lsGet("answerDelay",500),hardcoreMode=lsGet("hardcoreMode",false),hardcoreTimer=Math.min(10000,Math.max(2000,lsGet("hardcoreTimer",2000)));
+let stepSize=lsGet("stepSize",25),currentStepAmount=0,answerDelay=lsGet("answerDelay",500),hardcoreMode=lsGet("hardcoreMode",false),hardcoreTimer=Math.min(10000,Math.max(2000,lsGet("hardcoreTimer",2000)));
 let lives=4,timerInterval=null,isLocked=false,_delayTimer=null,_skipCooldown=false,_wordShownAt=0;
 let sessionCorrect=0,sessionTotal=0,sessionWrong=0,combo=0,sessionComboMax=0;
 let currentBlockStart=0,currentBlockEnd=0,isCustomMode=false,customPool=[];
@@ -623,6 +623,7 @@ function _flushSave(){
     localStorage.setItem("answerDelay",JSON.stringify(answerDelay));
     localStorage.setItem("hardcoreTimer",JSON.stringify(hardcoreTimer));
     localStorage.setItem("glitchBaseChance",JSON.stringify(glitchBaseChance));
+    localStorage.setItem("stepSize",JSON.stringify(stepSize));
   }catch(e){console.warn("saveAll failed:",e);}
 }
 /* Flush before page unload so data is never lost */
@@ -634,21 +635,43 @@ window.addEventListener("beforeunload",saveAllNow);
 const _ENC_KEY="KotobaRhodesIslandProtocol_v3";
 function _encodeData(obj){
   try{
-    let raw=JSON.stringify(obj);
-    let out=[];
+    // Use encodeURIComponent to safely convert Unicode/Japanese to Latin-1 safe bytes
+    let raw=encodeURIComponent(JSON.stringify(obj));
+    let bytes=[];
+    for(let i=0;i<raw.length;i++){bytes.push(raw.charCodeAt(i));}
     let k=[..._ENC_KEY].map(c=>c.charCodeAt(0));
-    for(let i=0;i<raw.length;i++){out.push(raw.charCodeAt(i)^k[i%k.length]^((i*7+13)&0xFF));}
-    // base64 of the xor'd bytes
-    return btoa(String.fromCharCode(...out));
+    let out=[];
+    for(let i=0;i<bytes.length;i++){out.push((bytes[i]^k[i%k.length]^((i*7+13)&0xFF))&0xFF);}
+    // Build base64 in chunks to avoid call stack overflow on large arrays
+    let str='';
+    const CHUNK=8192;
+    for(let i=0;i<out.length;i+=CHUNK){str+=String.fromCharCode(...out.slice(i,i+CHUNK));}
+    return btoa(str);
   }catch(e){return null;}
 }
 function _decodeData(encoded){
   try{
-    let bytes=[...atob(encoded)].map(c=>c.charCodeAt(0));
+    let raw=atob(encoded);
+    let bytes=[];
+    for(let i=0;i<raw.length;i++){bytes.push(raw.charCodeAt(i));}
     let k=[..._ENC_KEY].map(c=>c.charCodeAt(0));
     let out=[];
-    for(let i=0;i<bytes.length;i++){out.push(bytes[i]^k[i%k.length]^((i*7+13)&0xFF));}
-    return JSON.parse(out.map(c=>String.fromCharCode(c)).join(''));
+    for(let i=0;i<bytes.length;i++){out.push((bytes[i]^k[i%k.length]^((i*7+13)&0xFF))&0xFF);}
+    // Try old format FIRST: treat XOR output bytes as raw UTF-8 via TextDecoder
+    // (old saves stored raw UTF-8 bytes; decodeURIComponent silently passes them through garbled)
+    try{
+      let utf8=new TextDecoder('utf-8').decode(new Uint8Array(out));
+      let parsed=JSON.parse(utf8);
+      if(parsed&&typeof parsed==='object') return parsed;
+    }catch(_){}
+    // Fall back to new format (encodeURIComponent-wrapped ASCII)
+    try{
+      let str='';
+      const CHUNK=8192;
+      for(let i=0;i<out.length;i+=CHUNK){str+=String.fromCharCode(...out.slice(i,i+CHUNK));}
+      return JSON.parse(decodeURIComponent(str));
+    }catch(_){}
+    return null;
   }catch(e){return null;}
 }
 
@@ -4711,7 +4734,10 @@ function selectProfile(name){
   let p=profiles[name];
   if(!p||typeof p!=='object'){alert("Operator data is missing or corrupt. Please re-import.");renderProfile();return;}
   if(!Array.isArray(p.words)) p.words=[];
-  currentProfile=name;words=[...p.words];renderGroup();
+  currentProfile=name;
+  // Migrate flat words to groups structure if not already done
+  getProfileGroups(name);
+  words=[...p.words];renderGroup();
 }
 
 /* ── GROUP ── */
@@ -4742,6 +4768,8 @@ function renderGroup(){
     <button data-action="startAll">⬛ &nbsp;${appLang==='jp'?'全問出題 — ALL':'Full Deployment — ALL'}</button>
     <button data-action="renderCustomAmount" style="border-color:var(--accent-dim);color:var(--accent);">◈ &nbsp;${t('customAmt')}</button>
     <button data-action="renderCustomGroupPick" style="border-color:var(--blue);color:var(--blue);background:rgba(58,114,176,0.06);">⊞ &nbsp;${appLang==='jp'?'カスタムグループ選択':'Custom Group Pick'}</button>
+    <div class="ark-section" style="margin-top:10px;">${appLang==='jp'?'データ管理':'DATA MANAGEMENT'}</div>
+    <button data-action="renderManageGrub" style="border-color:rgba(201,64,64,0.4);color:var(--red);background:rgba(201,64,64,0.05);">⚙ &nbsp;${appLang==='jp'?'グループ・単語を管理':'Manage Groups &amp; Kotoba'}</button>
   </div>`;
 
   document.getElementById("btn-jp-mode").addEventListener("click",()=>{globalMode=false;saveAll();renderGroup();});
@@ -8354,6 +8382,268 @@ function renderKotoba(){
   </div>`;
 }
 
+/* ── MANAGE GRUB & KOTOBA ── */
+
+// Helper: ALWAYS store groups of 25 internally (atomic unit)
+// stepSize=50 means "view two 25-groups together as one visual grub"
+function getProfileGroups(profName){
+  let p=profiles[profName||currentProfile];
+  if(!p) return [];
+  if(Array.isArray(p.groups)) return p.groups;
+  // Migrate flat words into groups of 25 always
+  let ws=p.words||[];
+  let groups=[];
+  for(let i=0;i<ws.length;i+=25) groups.push(ws.slice(i,i+25));
+  p.groups=groups;
+  return p.groups;
+}
+
+// Helper: sync profile.words (flat) from profile.groups so gameplay still works
+function syncWordsFromGroups(profName){
+  let p=profiles[profName||currentProfile];
+  if(!p) return;
+  let groups=p.groups||[];
+  p.words=groups.reduce((acc,g)=>acc.concat(g),[]);
+  if(profName===currentProfile||!profName) words=[...p.words];
+}
+
+function renderManageGrub(){
+  let isJP=appLang==='jp';
+  if(!currentProfile||!profiles[currentProfile]){renderGroup();return;}
+  let groupSize=stepSize||25;  // display grouping: 25 or 50
+  let groups=getProfileGroups(currentProfile); // always 25-unit groups internally
+  let totalWords=groups.reduce((s,g)=>s+g.length,0);
+  const SUB=25; // internal group size always 25
+  // Number of internal groups per visual grub
+  let subsPerGrub=Math.floor(groupSize/SUB); // 1 for size-25, 2 for size-50
+  // Number of visual grubs to show
+  let numGrubs=Math.ceil(groups.length/subsPerGrub);
+
+  let groupsHtml='';
+  if(!groups.length){
+    groupsHtml='<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);padding:16px;text-align:center;">'+(isJP?'グループがありません。':'No groups yet.')+'</div>';
+  } else {
+    for(let vi=0;vi<numGrubs;vi++){
+      // Which internal groups belong to this visual grub
+      let subIdxStart=vi*subsPerGrub;
+      let subIdxEnd=Math.min(subIdxStart+subsPerGrub, groups.length);
+      let subGroups=groups.slice(subIdxStart, subIdxEnd);
+      // Slot range for this visual grub
+      let slotStart=vi*groupSize+1;
+      let slotEnd=vi*groupSize+groupSize;
+      let rangeLabel=slotStart+'\u2013'+slotEnd;
+      // Count words & mastered across all sub-groups
+      let count=subGroups.reduce((s,g)=>s+g.length,0);
+      let mastered=subGroups.reduce((s,g)=>s+g.filter(w=>(w.correct||0)>=5).length,0);
+      let maxSlots=subsPerGrub*SUB;
+      let atLimit=(count>=maxSlots);
+      let gid='grub_v'+vi;
+
+      // Inline expand: show sub-groups separately
+      let inlineHtml='';
+      if(subsPerGrub===1){
+        // size-25: flat list with remove buttons
+        let g=subGroups[0]||[];
+        inlineHtml=g.length?g.map((w,idx)=>{
+          let globalNum=vi*groupSize+idx+1;
+          return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-left:2px solid '+((w.correct||0)>=5?'var(--green)':'var(--border)')+';margin:2px 0;background:var(--bg-deep);">'
+            +'<span style="font-family:\'Share Tech Mono\',monospace;font-size:8px;color:var(--text-dim);min-width:26px;">'+globalNum+'</span>'
+            +'<span style="font-family:\'Rajdhani\',sans-serif;font-size:13px;font-weight:700;color:var(--text-bright);">'+w.kanji+'</span>'
+            +(w.hira?'<span style="font-size:10px;color:var(--accent);">'+w.hira+'</span>':'')
+            +'<span style="font-size:9px;color:var(--text-dim);flex:1;">\u2014 '+w.arti+'</span>'
+            +'<button onclick="removeKotoba('+(subIdxStart)+','+idx+')" style="width:auto;padding:2px 8px;font-size:9px;border-color:rgba(201,64,64,0.4);color:var(--red);background:rgba(201,64,64,0.06);justify-content:center;min-width:0;">\u2715</button>'
+            +'</div>';
+        }).join(''):'<div style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--text-dim);padding:8px;text-align:center;">'+(isJP?'空':'empty')+'</div>';
+      } else {
+        // size-50: show two sub-group edit buttons
+        for(let s=0;s<subsPerGrub;s++){
+          let realIdx=subIdxStart+s;
+          let subG=groups[realIdx]||[];
+          let subSlotStart=vi*groupSize+s*SUB+1;
+          let subSlotEnd=vi*groupSize+s*SUB+SUB;
+          let subLabel=subSlotStart+'\u2013'+subSlotEnd;
+          let subFull=(subG.length>=SUB);
+          inlineHtml+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-left:2px solid '+(subFull?'var(--accent)':'var(--border)')+';margin:3px 0;background:var(--bg-deep);">'
+            +'<span style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--accent);letter-spacing:1px;">'+subLabel+'</span>'
+            +'<span style="font-family:\'Share Tech Mono\',monospace;font-size:8px;color:var(--text-dim);">'+subG.length+'/'+SUB+(subFull?' \u25cf FULL':'')+'</span>'
+            +'<div style="flex:1;height:3px;background:var(--border);overflow:hidden;margin:0 4px;"><div style="height:100%;width:'+Math.floor((subG.length/SUB)*100)+'%;background:'+(subFull?'var(--accent)':'var(--green)')+'"></div></div>'
+            +'<button onclick="renderManageKotoba('+realIdx+')" style="width:auto;padding:3px 10px;font-size:9px;border-color:var(--accent-dim);color:var(--accent);background:rgba(232,168,56,0.07);justify-content:center;">\u2699 '+subLabel+'</button>'
+            +'</div>';
+        }
+      }
+
+      groupsHtml+='<div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid '+(atLimit?'var(--accent)':'var(--accent-dim)')+';margin-bottom:8px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">'
+        +'<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="document.getElementById(\''+gid+'\').style.display=document.getElementById(\''+gid+'\').style.display===\'none\'?\'block\':\'none\'">'
+        +'<span style="font-family:\'Rajdhani\',sans-serif;font-size:15px;font-weight:700;color:var(--accent);letter-spacing:1px;">'+rangeLabel+'</span>'
+        +'<div style="flex:1;">'
+        +'<div style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--text-dim);">'+count+'/'+maxSlots+' '+(isJP?'\u5358\u8a9e':'units')+(atLimit?' <span style="color:var(--accent);font-size:8px;">\u25cf FULL</span>':'')+'</div>'
+        +'<div style="width:100%;height:2px;background:var(--border);margin-top:4px;overflow:hidden;"><div style="height:100%;width:'+Math.floor((count/maxSlots)*100)+'%;background:var(--green);"></div></div>'
+        +'</div>'
+        +'<button onclick="event.stopPropagation();eraseGrub('+vi+','+subsPerGrub+')" style="width:auto;padding:4px 10px;font-size:9px;border-color:rgba(201,64,64,0.5);color:var(--red);background:rgba(201,64,64,0.07);justify-content:center;">\u2620 '+(isJP?'\u524a\u9664':'ERASE')+'</button>'
+        +(subsPerGrub===1?'<button onclick="event.stopPropagation();renderManageKotoba('+subIdxStart+')" style="width:auto;padding:4px 10px;font-size:9px;border-color:var(--accent-dim);color:var(--accent);background:rgba(232,168,56,0.07);justify-content:center;">\u2699 '+(isJP?'\u7de8\u96c6':'EDIT')+'</button>':'')
+        +'</div>'
+        +'<div id="'+gid+'" style="display:none;padding:0 8px 8px;">'+inlineHtml+'</div>'
+        +'</div>';
+    }
+  }
+
+  app.innerHTML='<div class="container">'
+    +'<div class="ark-header"><button class="back" data-action="renderGroup">'+t('back')+'</button><div class="ark-title">'+(isJP?'\u30b0\u30eb\u30fc\u30d7 <span>\u7ba1\u7406</span>':'Manage <span>Groups</span>')+'</div></div>'
+    +'<div class="ark-stat-row" style="margin-bottom:10px;">'
+    +'<div class="ark-stat"><div class="ark-stat-label">'+(isJP?'\u30b0\u30eb\u30fc\u30d7':'Grubs')+'</div><div class="ark-stat-value" style="color:var(--accent);">'+numGrubs+'</div></div>'
+    +'<div class="ark-stat"><div class="ark-stat-label">'+(isJP?'\u7dcf\u5358\u8a9e\u6570':'Total')+'</div><div class="ark-stat-value">'+totalWords+'</div></div>'
+    +'<div class="ark-stat"><div class="ark-stat-label">'+(isJP?'\u30b5\u30a4\u30ba':'Size')+'</div><div class="ark-stat-value" style="font-size:14px;">'+groupSize+'</div></div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'
+    +'<button id="btn-mgr-size25" style="justify-content:center;font-size:11px;padding:8px 4px;'+(groupSize===25?'border-color:var(--accent);color:var(--accent);background:rgba(232,168,56,0.1);':'border-color:var(--border);color:var(--text-dim);')+'">⬡ SIZE 25</button>'
+    +'<button id="btn-mgr-size50" style="justify-content:center;font-size:11px;padding:8px 4px;'+(groupSize===50?'border-color:var(--accent);color:var(--accent);background:rgba(232,168,56,0.1);':'border-color:var(--border);color:var(--text-dim);')+'">⬡ SIZE 50</button>'
+    +'</div>'
+    +'<button id="btn-add-grub" style="justify-content:center;margin-bottom:12px;border-color:var(--green);color:var(--green);background:rgba(58,154,92,0.07);">\u2295 &nbsp;'+(isJP?'\u65b0\u30b0\u30eb\u30fc\u30d7\u3092\u8ffd\u52a0':'Add New Group')+'</button>'
+    +'<div class="ark-section">\u229e '+(isJP?'\u30b0\u30eb\u30fc\u30d7\u4e00\u89a7':'GROUP LIST')+' \u2014 '+currentProfile+'</div>'
+    +groupsHtml
+    +'</div>';
+
+  document.getElementById("btn-mgr-size25").addEventListener("click",()=>{stepSize=25;saveAll();renderManageGrub();});
+  document.getElementById("btn-mgr-size50").addEventListener("click",()=>{stepSize=50;saveAll();renderManageGrub();});
+  document.getElementById("btn-add-grub").addEventListener("click",addGrub);
+}
+
+function addGrub(){
+  // Always add a new internal group of 25
+  let groups=getProfileGroups(currentProfile);
+  groups.push([]);
+  syncWordsFromGroups(currentProfile);
+  saveAll();
+  renderManageKotoba(groups.length-1);
+}
+
+function eraseGrub(visualIdx, subsPerGrub){
+  let isJP=appLang==='jp';
+  let groups=getProfileGroups(currentProfile);
+  let subIdxStart=visualIdx*subsPerGrub;
+  let subIdxEnd=Math.min(subIdxStart+subsPerGrub, groups.length);
+  let totalCount=groups.slice(subIdxStart,subIdxEnd).reduce((s,g)=>s+g.length,0);
+  let slotStart=visualIdx*(subsPerGrub*25)+1;
+  let slotEnd=visualIdx*(subsPerGrub*25)+(subsPerGrub*25);
+  if(!confirm((isJP?'\u30b0\u30eb\u30fc\u30d7 ':'Group ')+slotStart+'\u2013'+slotEnd+(isJP?' \u306e\u5358\u8a9e '+totalCount+' \u4ef6\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f\n\u5143\u306b\u623b\u305b\u307e\u305b\u3093\u3002':' — remove '+totalCount+' kotoba?\nThis cannot be undone.')))return;
+  groups.splice(subIdxStart, subIdxEnd-subIdxStart);
+  syncWordsFromGroups(currentProfile);
+  saveAll();
+  renderManageGrub();
+}
+
+function removeKotoba(groupIdx,wordIdx){
+  let isJP=appLang==='jp';
+  let groups=getProfileGroups(currentProfile);
+  let g=groups[groupIdx];
+  if(!g||!g[wordIdx]) return;
+  let w=g[wordIdx];
+  if(!confirm(isJP?'\u300c'+w.kanji+'\u300d\u3092\u524a\u9664\u3057\u307e\u3059\u304b\uff1f':'Remove "'+w.kanji+'" ('+w.arti+')?'))return;
+  g.splice(wordIdx,1);
+  syncWordsFromGroups(currentProfile);
+  saveAll();
+  renderManageGrub();
+}
+
+function renderManageKotoba(groupIdx){
+  let isJP=appLang==='jp';
+  if(!currentProfile||!profiles[currentProfile]){renderGroup();return;}
+  const SUB=25; // always 25 per internal group
+  let groups=getProfileGroups(currentProfile);
+  while(groups.length<=groupIdx) groups.push([]);
+  let g=groups[groupIdx];
+  let count=g.length;
+  let atLimit=(count>=SUB);
+  // Global slot range: each internal group is always 25 slots
+  let slotStart=groupIdx*SUB+1;
+  let slotEnd=groupIdx*SUB+SUB;
+  let rangeLabel=slotStart+'\u2013'+slotEnd;
+
+  let kotobalist='';
+  if(count){
+    kotobalist=g.map((w,idx)=>_kotobaRow(w,groupIdx*SUB+idx,groupIdx,idx)).join('');
+  }
+
+  let capacityBar='<div style="height:4px;background:var(--border);overflow:hidden;margin-top:6px;"><div style="height:100%;width:'+Math.floor((count/SUB)*100)+'%;background:'+(atLimit?'var(--red)':'var(--green)')+';transition:width 0.3s;"></div></div>';
+
+  let limitBar='<div style="margin-bottom:12px;padding:8px 12px;background:var(--bg-card);border:1px solid '+(atLimit?'var(--red)':'var(--border)')+';border-left:3px solid '+(atLimit?'var(--red)':'var(--green)')+';">'
+    +'<div style="display:flex;align-items:center;gap:8px;">'
+    +'<span style="font-family:\'Share Tech Mono\',monospace;font-size:9px;color:'+(atLimit?'var(--red)':'var(--text-dim)')+';">'+(atLimit?'\u26d4 FULL':count+'/'+SUB)+'</span>'
+    +'<span style="font-family:\'Share Tech Mono\',monospace;font-size:8px;color:var(--text-dim);margin-left:auto;">'+(atLimit?'':(SUB-count)+' slots left')+'</span>'
+    +'</div>'
+    +capacityBar
+    +'</div>';
+
+  let addForm=atLimit?'':'<div class="ark-section">\u2295 '+(isJP?'\u5358\u8a9e\u3092\u8ffd\u52a0':'ADD KOTOBA')+'</div>'
+    +'<div style="background:var(--bg-card);border:1px solid var(--border);border-top:2px solid var(--green);padding:12px 14px;margin-bottom:10px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);">'
+    +'<div style="display:grid;gap:6px;">'
+    +'<input id="inp-kanji" type="text" placeholder="'+(isJP?'\u6f22\u5b57 / \u8a9e':'Kanji / Word')+'" style="margin:0;">'
+    +'<input id="inp-hira" type="text" placeholder="'+(isJP?'\u3072\u3089\u304c\u306a':'Hiragana')+'" style="margin:0;">'
+    +'<input id="inp-arti" type="text" placeholder="'+(isJP?'\u610f\u5473':'Meaning')+'" style="margin:0;">'
+    +'</div>'
+    +'<button id="btn-save-kotoba" style="margin-top:8px;justify-content:center;border-color:var(--green);color:var(--green);background:rgba(58,154,92,0.1);">\u2295 &nbsp;'+(isJP?'\u8ffd\u52a0':'ADD KOTOBA')+'</button>'
+    +'</div>';
+
+  app.innerHTML='<div class="container">'
+    +'<div class="ark-header"><button id="btn-back-mkotoba" class="back">'+t('back')+'</button>'
+    +'<div class="ark-title">Kotoba <span>'+rangeLabel+'</span></div>'
+    +'<div class="ark-badge">'+SUB+' units</div></div>'
+    +limitBar
+    +addForm
+    +'<div class="ark-section">\ud83d\udccb '+(isJP?'\u5358\u8a9e\u4e00\u89a7':'KOTOBA LIST')+' ('+count+'/'+SUB+')</div>'
+    +(count?kotobalist:'<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--text-dim);padding:12px;text-align:center;">'+(isJP?'\u307e\u3060\u5358\u8a9e\u304c\u3042\u308a\u307e\u305b\u3093\u3002':'No kotoba yet. Add some above.')+'</div>')
+    +'</div>';
+
+  document.getElementById("btn-back-mkotoba").addEventListener("click",renderManageGrub);
+  if(!atLimit){
+    document.getElementById("btn-save-kotoba").addEventListener("click",()=>addKotobaToGroup(groupIdx));
+    document.getElementById("inp-arti").addEventListener("keydown",e=>{if(e.key==="Enter")addKotobaToGroup(groupIdx);});
+  }
+}
+
+function _kotobaRow(w,globalIdx,groupIdx,localIdx){
+  return '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-left:2px solid '+((w.correct||0)>=5?'var(--green)':'var(--accent-dim)')+';margin:2px 0;background:var(--bg-card);">'
+    +'<span style="font-family:\'Share Tech Mono\',monospace;font-size:8px;color:var(--text-dim);min-width:28px;">'+(globalIdx+1)+'</span>'
+    +'<div style="flex:1;">'
+    +'<span style="font-family:\'Rajdhani\',sans-serif;font-size:14px;font-weight:700;color:var(--text-bright);">'+w.kanji+'</span>'
+    +(w.hira?'<span style="font-size:10px;color:var(--accent);margin-left:6px;">'+w.hira+'</span>':'')
+    +(w.arti?'<span style="font-size:9px;color:var(--text-dim);margin-left:6px;">\u2014 '+w.arti+'</span>':'')
+    +'</div>'
+    +'<span style="font-size:8px;color:'+((w.correct||0)>=5?'var(--green)':'var(--text-dim)')+'">'+((w.correct||0)>=5?'\u2713':'\xd7'+(w.correct||0))+'</span>'
+    +'<button onclick="removeKotobaFromEdit('+groupIdx+','+localIdx+')" style="width:auto;padding:3px 9px;font-size:9px;border-color:rgba(201,64,64,0.4);color:var(--red);background:rgba(201,64,64,0.06);justify-content:center;min-width:0;">\u2715</button>'
+    +'</div>';
+}
+
+function addKotobaToGroup(groupIdx){
+  let isJP=appLang==='jp';
+  let groupSize=stepSize||25;
+  let kanji=(document.getElementById("inp-kanji").value||"").trim();
+  let hira=(document.getElementById("inp-hira").value||"").trim();
+  let arti=(document.getElementById("inp-arti").value||"").trim();
+  if(!kanji||!arti){alert(isJP?'漢字と意味は必須です。':'Kanji and meaning are required.');return;}
+  let groups=getProfileGroups(currentProfile);
+  while(groups.length<=groupIdx) groups.push([]);
+  let g=groups[groupIdx];
+  if(g.length>=groupSize){alert(isJP?'このグループは満杯です！':'This group is full!');return;}
+  g.push(makeWordObj(kanji,hira,arti));
+  syncWordsFromGroups(currentProfile);
+  saveAll();
+  renderManageKotoba(groupIdx);
+}
+
+function removeKotobaFromEdit(groupIdx,wordIdx){
+  let isJP=appLang==='jp';
+  let groups=getProfileGroups(currentProfile);
+  let g=groups[groupIdx];
+  if(!g||!g[wordIdx]) return;
+  let w=g[wordIdx];
+  if(!confirm(isJP?`「${w.kanji}」を削除しますか？`:`Remove "${w.kanji}" (${w.arti})?`))return;
+  g.splice(wordIdx,1);
+  syncWordsFromGroups(currentProfile);
+  saveAll();
+  renderManageKotoba(groupIdx);
+}
+
 /* ── SHARE ── */
 function renderShare(){
   let isJP=appLang==='jp';
@@ -8378,6 +8668,7 @@ function renderShare(){
   // Encode the full save data for export (uses globalProfile too)
   let savePayload={profiles,globalStats,globalProfile,playedGroups,achievements,dailyMissions,sessionHistory,resetCount,shopData};
   let encodedReport=_encodeData(savePayload)||"// ENCODE ERROR //";
+  if(typeof encodedReport!=='string'){encodedReport="// ENCODE ERROR //";}
 
   // Profile switcher
   let switcherHtml=profileNames.length>1?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">${profileNames.map(n=>`<button onclick="currentProfile='${n}';words=[...(profiles['${n}'].words||[])];renderShare();" style="width:auto;padding:4px 12px;font-size:10px;letter-spacing:1px;border-color:${currentProfile===n?'var(--accent)':'var(--border)'};color:${currentProfile===n?'var(--accent)':'var(--text-dim)'};background:${currentProfile===n?'rgba(232,168,56,0.1)':'var(--bg-card)'};justify-content:center;">${n}</button>`).join('')}</div>`:'';
@@ -8436,7 +8727,7 @@ function renderShare(){
     <div class="ark-section">🔒 ${isJP?'エンコード済みセーブデータ':'ENCODED SAVE DATA'}</div>
     <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--accent-dim);padding:10px 14px;margin-bottom:8px;">
       <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:1px;margin-bottom:6px;">${isJP?'// このデータはKotobaTrainer専用です — 直接編集不可 //':'// THIS DATA IS KOTOBA-TRAINER SPECIFIC — NOT HUMAN READABLE //'}</div>
-      <div id="encodedBlock" style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text);word-break:break-all;max-height:80px;overflow-y:auto;user-select:none;pointer-events:none;letter-spacing:0;line-height:1.4;background:var(--bg-deep);padding:8px;border:1px solid var(--border);">${encodedReport.substring(0,200)}...</div>
+      <div id="encodedBlock" style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text);word-break:break-all;max-height:80px;overflow-y:auto;user-select:none;pointer-events:none;letter-spacing:0;line-height:1.4;background:var(--bg-deep);padding:8px;border:1px solid var(--border);">${encodedReport.substring(0,200).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}...</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
       <button id="btn-export-savedata" style="justify-content:center;border-color:var(--accent);color:var(--accent);">💾 &nbsp;${isJP?'エクスポート':'EXPORT'}</button>
@@ -8464,6 +8755,7 @@ function renderShare(){
     let file=this.files[0];if(!file)return;
     let r=new FileReader();
     r.onload=e=>{
+      // Use binary string result to preserve raw bytes (readAsText can corrupt bytes >127)
       let decoded=_decodeData(e.target.result.trim());
       if(!decoded||typeof decoded!=='object'){
         alert(isJP?'無効なセーブデータです。Kotoba Trainerのエクスポートファイル(.ktb)のみ対応しています。':'Invalid save data. Only .ktb files exported from Kotoba Trainer are supported.');
@@ -8481,7 +8773,7 @@ function renderShare(){
       alert(isJP?'インポートが完了しました！':'Import successful!');
       renderMenu();
     };
-    r.readAsText(file);
+    r.readAsBinaryString(file);
   });
 
   document.getElementById("btn-reset-all").addEventListener("click", resetAllProgress);
@@ -13621,7 +13913,7 @@ app.addEventListener("click", function(e){
   let parts=btn.getAttribute("data-action").split(":");
   let action=parts[0], args=parts.slice(1);
   // Set cooldown for any action that causes a screen transition
-  const navActions=new Set(["renderMenu","renderGlobalProfile","renderProfile","renderStats","renderAchievements","renderDailyMissions","renderKotoba","renderHistory","renderShare","renderGroup","renderMode","renderCustomAmount","renderCustomGroupPick","renderCustomBlock","renderCurrentStepKotoba","startAll","startCustomAmount","startCustomBlock","exitGame","deleteProfileMenu","chooseStep","chooseStepBack","selectMode","startGame","stepAmt","selectBlock","renderAdventureEntry","renderAdventureMap","advNewGame","advStartRun","advGoStage","advContinueMap","advOpenShop","advCloseShop","advScreenCharSelect","advAlmanac","renderAdvStats","renderShop","advPickProfile","advSelectChar","advChangeProfile"]);
+  const navActions=new Set(["renderMenu","renderGlobalProfile","renderProfile","renderStats","renderAchievements","renderDailyMissions","renderKotoba","renderHistory","renderShare","renderGroup","renderMode","renderCustomAmount","renderCustomGroupPick","renderCustomBlock","renderCurrentStepKotoba","startAll","startCustomAmount","startCustomBlock","exitGame","deleteProfileMenu","chooseStep","chooseStepBack","selectMode","startGame","stepAmt","selectBlock","renderAdventureEntry","renderAdventureMap","advNewGame","advStartRun","advGoStage","advContinueMap","advOpenShop","advCloseShop","advScreenCharSelect","advAlmanac","renderAdvStats","renderShop","advPickProfile","advSelectChar","advChangeProfile","renderManageGrub","renderManageKotoba"]);
   if(navActions.has(action)) _setNavCooldown();
   switch(action){
     case "advStartHiddenBoss":       advStartHiddenBoss(); break;
@@ -13684,6 +13976,8 @@ app.addEventListener("click", function(e){
     case "renderHistory":        renderHistory(); break;
     case "renderShare":          renderShare(); break;
     case "renderGroup":          renderGroup(); break;
+    case "renderManageGrub":     renderManageGrub(); break;
+    case "renderManageKotoba":   renderManageKotoba(parseInt(args[0]||0)); break;
     case "renderMode":           renderMode(); break;
     case "renderCustomAmount":   renderCustomAmount(); break;
     case "renderCustomGroupPick": renderCustomGroupPick(); break;
